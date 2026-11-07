@@ -722,6 +722,66 @@ describe("food chain", () => {
     expect(h.activity).toBe("food");
   });
 
+  it("meat.eat: picks the most food for the distance, and ignores scraps below minMeatFood", () => {
+    const w = still();
+    const c = addCarnivore(w, 500, 500);
+    c.energy = maxEnergy(w, c) * 0.3;
+    w.meat.push({ id: w.nextId++, x: 510, y: 500, food: w.options.animals.minMeatFood - 0.5 }); // scrap, nearest
+    w.meat.push({ id: w.nextId++, x: 500, y: 530, food: 10 }); // near, small: 10 / 40
+    w.meat.push({ id: w.nextId++, x: 450, y: 500, food: 60 }); // farther, big: 60 / 60
+    step(w);
+    expect(c.activity).toBe("food");
+    expect(c.x).toBeLessThan(500);
+  });
+
+  it("hunt.sizeup: the bar is (1 − boldness) × (1 − hungerBoldness × (1 − energy share))", () => {
+    const w = still();
+    const a = addCarnivore(w, 100, 100, { attack: 5, defence: 0, boldness: 0.2 });
+    const b = addHerbivore(w, 300, 300, { attack: 2, defence: 1 });
+    a.health = 60; b.health = 40; // chance 0.75
+    // bar = 0.8 × (1 − hb × (1 − share)) = 0.75 when share = 1 − (1 − 0.75 / 0.8) / hb
+    const share = 1 - (1 - 0.75 / 0.8) / w.options.fight.hungerBoldness;
+    a.energy = maxEnergy(w, a) * (share + 0.01);
+    expect(takesFight(w, a, b)).toBe(false);
+    a.energy = maxEnergy(w, a) * (share - 0.01);
+    expect(takesFight(w, a, b)).toBe(true);
+  });
+
+  it("fight.damage: a hunter killed by the blow back dies at once and pays no upkeep", () => {
+    const w = still();
+    const { h, c } = chase(w, 0, { attack: 10 }, { attack: 5, boldness: 1 });
+    c.health = 0.5;
+    c.age = c.genes.maturity;
+    const e = c.energy;
+    step(w);
+    expect(c.dead).toBe(true);
+    expect(c.cause).toBe("killed");
+    expect(c.energy).toBe(e);
+    expect(h.dead).toBe(false);
+  });
+
+  it("fight.flee: a fleeing animal does nothing else, not even eat the plant it touches", () => {
+    const w = still();
+    const { h } = chase(w, 20);
+    h.energy = maxEnergy(w, h) / 2;
+    const p = addPlant(w, 500, 500, 50);
+    step(w);
+    const food = p.food;
+    step(w);
+    expect(h.activity).toBe("flee");
+    expect(p.food).toBe(food);
+  });
+
+  it("plants.thorns: thorns can kill", () => {
+    const w = still();
+    const a = addHerbivore(w, 500, 500, { defence: 0 });
+    addPlant(w, 500, 500, 50, { thorns: 10 });
+    a.health = 5;
+    step(w);
+    expect(a.dead).toBe(true);
+    expect(a.cause).toBe("killed");
+  });
+
   it("plants.thorns: a bite hurts by thorns minus defence, nothing if defence is higher", () => {
     const w = still();
     const a = addHerbivore(w, 500, 500, { defence: 1 });

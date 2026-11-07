@@ -168,7 +168,8 @@ or flee. All settings here are in `fight` unless named otherwise.
   That herbivore is its target. When they touch, it attacks
   (`fight.damage`); reaching touch during this tick's move is enough.
 - **hunt.cannibal** A carnivore with energy below `cannibalHungry` of max,
-  and no meat or herbivore in sight at all, hunts the nearest other carnivore
+  and no meat worth eating (at least `minMeatFood`) and no herbivore at all
+  in sight, hunts the nearest other carnivore
   it sees whose size-up it would take, the same way.
 
 ## fight
@@ -177,7 +178,8 @@ or flee. All settings here are in `fight` unless named otherwise.
   target strikes back in the same moment. A blow does the striker's attack
   − the other's defence, but at least `minDamage` × attack (an animal with
   no attack does no harm). Health at zero means killed: it dies at once and
-  leaves meat. Hunter and target both stop where they are that tick.
+  leaves meat. The hunter stops where it is that tick; the target, if it
+  hasn't acted yet this tick, still does (it may flee).
 - **fight.flee** Each tick, before anything else, an animal looks for the
   nearest animal in sight that has it as a target. If there is one it sizes
   up that fight. If it would take it, it stands its ground and carries on

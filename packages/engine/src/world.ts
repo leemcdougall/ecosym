@@ -223,7 +223,8 @@ function act(w: World, a: Animal, plants: Grid<Plant>, animals: Grid<Animal>, me
   a.sprinted = false;
   if (a.target !== undefined) {
     const list = hunted.get(a.target);
-    if (list) list.splice(list.indexOf(a), 1);
+    const i = list ? list.indexOf(a) : -1;
+    if (i >= 0) list!.splice(i, 1);
     a.target = undefined;
   }
   const me = radius(w, a);
