@@ -51,8 +51,9 @@ export class Grid<T extends Placed> {
     const c0 = Math.floor((x / this.w) * this.cols);
     const r0 = Math.floor((y / this.h) * this.rows);
     const r2 = radius * radius * (1 + 1e-9); // cheap pre-check; the exact test is below
-    // A cell is visited twice only when the loop spans an even count of cells;
-    // skip the repeat (the last one) so the order of calls stays the same.
+    // A cell repeats only when the count across is even and the search reaches
+    // exactly half of it (the span is then count + 1). Skip the repeat (the
+    // last one) so the order of calls stays the same.
     const lastDr = 2 * rr === this.rows ? rr - 1 : rr;
     const lastDc = 2 * rc === this.cols ? rc - 1 : rc;
     for (let dr = -rr; dr <= lastDr; dr++) {

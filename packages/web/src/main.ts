@@ -40,11 +40,16 @@ seedEl.textContent = `seed ${seed}`;
 for (const s of SPEEDS) {
   const b = document.createElement("button");
   b.textContent = `${s}×`;
+  b.setAttribute("data-speed", String(s));
   b.setAttribute("aria-pressed", String(s === speed));
   b.onclick = () => {
     speed = s;
     reached = Math.min(reached, s);
-    for (const o of speedsEl.children) o.setAttribute("aria-pressed", String(o === b));
+    owed = 0;
+    for (const o of speedsEl.children) {
+      o.setAttribute("aria-pressed", String(o === b));
+      o.textContent = `${o.getAttribute("data-speed")}×`;
+    }
   };
   speedsEl.append(b);
 }
@@ -143,7 +148,7 @@ function counts(): void {
 /** Label the buttons: the asked-for speed, and what the world is really running at. */
 function showReached(): void {
   const short = !paused && reached < speed * 0.9;
-  const text = short ? `${speed}× (running ${Math.max(1, Math.round(reached))}×)` : `${speed}×`;
+  const text = short ? `${speed}× (running ${reached < 1 ? reached.toFixed(1) : Math.round(reached)}×)` : `${speed}×`;
   const b = [...speedsEl.children].find((o) => o.getAttribute("aria-pressed") === "true");
   if (b && b.textContent !== text) b.textContent = text;
 }
@@ -163,7 +168,7 @@ function loop(now: number): void {
     while (run < want && (run === 0 || performance.now() - started < FRAME_BUDGET_MS)) { step(world); run++; }
     owed -= want; // ticks the budget cut off are dropped, not saved up
     if (dt > 0) reached += (run / (dt * TICKS_PER_SECOND) - reached) * REACHED_SMOOTHING;
-    owed = Math.max(0, owed);
+    owed = Math.min(Math.max(0, owed), 1); // keep only the fraction of a tick
   }
   showReached();
   draw();
