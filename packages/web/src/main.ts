@@ -72,15 +72,15 @@ function newRun(): void {
   seedEl.textContent = `seed ${seed}`;
   history.replaceState(null, "", `?seed=${seed}`);
   owed = 0;
-  reached = Math.min(reached, speed);
+  reached = speed;
   last = performance.now();
   fit();
   counts();
   draw();
 }
-newRunBtn.onclick = newRun;
-// Space pauses, unless a button has focus: then Space presses that button.
-const spaceForPause = (e: KeyboardEvent) => e.code === "Space" && !(e.target instanceof HTMLButtonElement);
+newRunBtn.onclick = () => { newRun(); newRunBtn.blur(); };
+// Space always pauses or resumes, whatever has focus (it never presses the focused button).
+const spaceForPause = (e: KeyboardEvent) => e.code === "Space";
 addEventListener("keydown", (e) => {
   if (!spaceForPause(e)) return;
   e.preventDefault();
