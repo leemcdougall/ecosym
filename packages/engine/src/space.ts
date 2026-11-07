@@ -50,16 +50,19 @@ export class Grid<T extends Placed> {
     const rr = Math.min(Math.ceil(radius / ch), Math.floor(this.rows / 2));
     const c0 = Math.floor((x / this.w) * this.cols);
     const r0 = Math.floor((y / this.h) * this.rows);
-    const seen = new Set<number>();
-    for (let dr = -rr; dr <= rr; dr++) {
-      for (let dc = -rc; dc <= rc; dc++) {
+    const r2 = radius * radius * (1 + 1e-9); // cheap pre-check; the exact test is below
+    // A cell is visited twice only when the loop spans an even count of cells;
+    // skip the repeat (the last one) so the order of calls stays the same.
+    const lastDr = 2 * rr === this.rows ? rr - 1 : rr;
+    const lastDc = 2 * rc === this.cols ? rc - 1 : rc;
+    for (let dr = -rr; dr <= lastDr; dr++) {
+      const r = ((r0 + dr) % this.rows + this.rows) % this.rows;
+      for (let dc = -rc; dc <= lastDc; dc++) {
         const c = ((c0 + dc) % this.cols + this.cols) % this.cols;
-        const r = ((r0 + dr) % this.rows + this.rows) % this.rows;
-        const i = r * this.cols + c;
-        if (seen.has(i)) continue;
-        seen.add(i);
-        for (const it of this.cells[i]!) {
-          const d = distance(x, y, it.x, it.y, this.w, this.h);
+        for (const it of this.cells[r * this.cols + c]!) {
+          const dx = delta(x, it.x, this.w), dy = delta(y, it.y, this.h);
+          if (dx * dx + dy * dy > r2) continue;
+          const d = Math.hypot(dx, dy);
           if (d <= radius) fn(it, d);
         }
       }

@@ -61,6 +61,21 @@ describe("world", () => {
     expect(found[0]).toBeCloseTo(8);
   });
 
+  it("world.wrap: the grid finds each thing once, even when the search covers the whole world", () => {
+    const dice = makeDice(7);
+    const items = Array.from({ length: 200 }, () => ({ x: roll(dice) * 400, y: roll(dice) * 300 }));
+    const g = new Grid<{ x: number; y: number }>(400, 300, 100); // 4 by 3 cells
+    g.fill(items);
+    for (const radius of [30, 150, 1000]) {
+      const found = new Set<{ x: number; y: number }>();
+      let calls = 0;
+      g.near(10, 10, radius, (it) => { found.add(it); calls++; });
+      const want = items.filter((it) => distance(10, 10, it.x, it.y, 400, 300) <= radius);
+      expect(calls).toBe(found.size);
+      expect(calls).toBe(want.length);
+    }
+  });
+
   it("world.wrap: a tiny negative wraps to 0, never to the width", () => {
     expect(wrap(-1e-14, 1600)).toBeLessThan(1600);
   });
