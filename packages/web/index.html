@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ecosym</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Ecosym</h1>
+    <div class="controls">
+      <button id="pause" title="Pause (space)">Pause</button>
+      <span class="speeds" id="speeds"></span>
+      <span class="seed" id="seed"></span>
+    </div>
+    <div class="counts" id="counts"></div>
+  </header>
+  <main><canvas id="world"></canvas></main>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>
