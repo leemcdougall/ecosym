@@ -231,6 +231,7 @@ function bitePlant(w: World, a: Animal, p: Plant): void {
   p.food -= bite;
   a.energy += bite;
   a.fed = w.options.animals.fedTicks;
+  if (bite >= room) a.activity = "wander"; // full: done eating until hungry again
   if (p.food < 1) p.dead = true; // plants.die
 }
 

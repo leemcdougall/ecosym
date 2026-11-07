@@ -313,6 +313,7 @@ describe("animals", () => {
     expect(radius(w, a)).toBe(ao.radiusBase + ao.radiusPerSize * 2);
   });
 
+  // Sprinting (stamina used, no recovery) is tested with the chases in M2.
   it("animals.stamina: walking recovers stamina up to the gene", () => {
     const w = empty();
     const a = addHerbivore(w, 500, 500, { stamina: 100 });
@@ -361,8 +362,16 @@ describe("eating", () => {
     const a = addHerbivore(w, 500, 500);
     addPlant(w, 502, 500, 60, { growth: 0 });
     a.energy = maxEnergy(w, a) * w.options.animals.hungry - 0.5;
-    for (let i = 0; i < 20; i++) step(w);
-    expect(a.energy).toBeGreaterThan(maxEnergy(w, a) * 0.95);
+    let filled = -1;
+    for (let i = 0; i < 20 && filled < 0; i++) {
+      step(w);
+      if (a.activity === "wander") filled = i;
+    }
+    expect(filled).toBeGreaterThan(0);
+    expect(a.energy).toBeGreaterThan(maxEnergy(w, a) * 0.99);
+    // Full, it stops eating and wanders off until hungry again.
+    step(w);
+    expect(a.activity).toBe("wander");
   });
 
   it("eat.plant: plants out of sight are not seen", () => {
