@@ -129,7 +129,10 @@ export function step(w: World): void {
 
   const plantGrid = new Grid<Plant>(o.width, o.height);
   plantGrid.fill(w.plants);
-  const animalGrid = new Grid<Animal>(o.width, o.height);
+  // Animals move as they act, so the grid is told how far they can go in a tick.
+  let drift = 0;
+  for (const a of w.animals) if (a.genes.speed > drift) drift = a.genes.speed;
+  const animalGrid = new Grid<Animal>(o.width, o.height, undefined, drift);
   animalGrid.fill(w.animals);
 
   // Birth order (the order animals were made); babies are appended and
@@ -243,6 +246,11 @@ function moveTo(w: World, a: Animal, x: number, y: number, gap: number, sprint: 
   go(w, a, Math.min(top, Math.max(0, gap)), canSprint);
 }
 
+/**
+ * Move along the heading. The animal grid's `drift` (see step) assumes nothing
+ * moves an animal further than genes.speed in a tick; if a new rule does,
+ * raise the allowance there.
+ */
 function go(w: World, a: Animal, speed: number, sprinting = false): void {
   a.x = wrap(a.x + Math.cos(a.heading) * speed, w.options.width);
   a.y = wrap(a.y + Math.sin(a.heading) * speed, w.options.height);
