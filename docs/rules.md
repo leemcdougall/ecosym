@@ -112,9 +112,18 @@ Plant genes:
 ## eating
 
 - **eat.plant** A herbivore that wants food (energy below `hungry` of max)
-  cruises to the nearest plant it sees with at least `minPlantFood`, and once
+  cruises to the best plant it sees with at least `minPlantFood`: the most
+  food for the distance (food ÷ (distance + `plantDistanceWeight`)). Once
   touching it takes a bite each tick: up to `bitePerSize` × size food,
   turned into energy one for one, until full.
+
+- **touch** Two things touch when the gap between their edges is at most
+  `TOUCH` (1 point), so rounding can't leave an animal a hair short.
+
+## meat
+
+- **meat.rot** Each tick every piece of meat loses `meatRot` food; at zero it
+  is gone.
 
 ## breeding
 
@@ -133,7 +142,7 @@ Plant genes:
 
 Not built yet; sections to be written with the code: `hunt.sizeup`,
 `hunt.chase`, `hunt.cannibal`, `fight.damage`, `fight.flee`, `meat.eat`,
-`meat.rot`, `plants.thorns`. Agreed shape (grilling, 7 Nov 2026):
+`plants.thorns`. Agreed shape (grilling, 7 Nov 2026):
 
 - Carnivores chase herbivores and eat meat. Hungry carnivores with no
   herbivore or meat in sight hunt other carnivores.
@@ -143,5 +152,5 @@ Not built yet; sections to be written with the code: `hunt.sizeup`,
 - Herbivores use the same rule to fight or flee.
 - In a fight, each tick each side deals its attack minus the other's
   defence (at least a little).
-- Meat rots away over time.
+- Carnivores eat meat.
 - Each bite of a thorny plant hurts by thorns minus the herbivore's defence.
