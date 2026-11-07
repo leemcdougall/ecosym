@@ -6,9 +6,6 @@ import {
 } from "./options.js";
 import { delta, distance, Grid, wrap } from "./space.js";
 
-/** Things count as touching within this many points of their edges. */
-export const TOUCH = 1;
-
 export type Kind = "herbivore" | "carnivore";
 
 export interface Plant {
@@ -42,6 +39,8 @@ export interface Animal {
   activity: Activity;
   /** Speed moved in the latest tick (for upkeep and the screen). */
   moved: number;
+  /** Whether it sprinted in the latest tick (animals.stamina). */
+  sprinted: boolean;
   dead: boolean;
   /** Why it died, once dead. */
   cause?: "old age" | "starved" | "killed";
@@ -58,6 +57,8 @@ export interface World {
   plants: Plant[];
   animals: Animal[];
   meat: Meat[];
+  /** Animals alive right now (the dead leave the list at the end of the tick). */
+  living: number;
   /** Running totals since the world began. */
   totals: { born: Record<Kind, number>; died: Record<Kind, number> };
 }
@@ -66,23 +67,23 @@ export function createWorld(seed: number, over: DeepPartial<WorldOptions> = {}):
   const options = makeOptions(over);
   const w: World = {
     seed, options, dice: makeDice(seed), tick: 0, nextId: 1,
-    plants: [], animals: [], meat: [],
+    plants: [], animals: [], meat: [], living: 0,
     totals: { born: { herbivore: 0, carnivore: 0 }, died: { herbivore: 0, carnivore: 0 } },
   };
   const d = w.dice;
   for (let i = 0; i < options.start.plants; i++) {
     const p = newPlant(w, between(d, 0, options.width), between(d, 0, options.height),
       startGenes(d, PLANT_GENES, options.plants.genes), 0);
-    p.food = between(d, options.plants.maxFood / 2, options.plants.maxFood);
-    p.age = Math.floor(between(d, 0, p.genes.lifespan / 2));
+    p.food = options.plants.maxFood * between(d, options.start.plantFood[0], options.start.plantFood[1]);
+    p.age = Math.floor(between(d, 0, p.genes.lifespan * options.start.ageFraction));
   }
   for (const kind of ["herbivore", "carnivore"] as const) {
     const n = kind === "herbivore" ? options.start.herbivores : options.start.carnivores;
     for (let i = 0; i < n; i++) {
       const genes = startGenes(d, ANIMAL_GENES, geneRanges(options, kind));
       const a = newAnimal(w, kind, between(d, 0, options.width), between(d, 0, options.height), genes, 0);
-      a.energy = maxEnergy(w, a) * between(d, 0.6, 0.9);
-      a.age = Math.floor(between(d, genes.maturity, Math.max(genes.maturity, genes.lifespan / 2)));
+      a.energy = maxEnergy(w, a) * between(d, options.start.energy[0], options.start.energy[1]);
+      a.age = Math.floor(between(d, genes.maturity, Math.max(genes.maturity, genes.lifespan * options.start.ageFraction)));
       a.cooldown = Math.floor(between(d, 0, genes.cooldown));
     }
   }
@@ -111,10 +112,11 @@ function newAnimal(w: World, kind: Kind, x: number, y: number, genes: Record<Ani
     id: w.nextId++, kind, x: wrap(x, w.options.width), y: wrap(y, w.options.height),
     heading: roll(w.dice) * Math.PI * 2, genes, energy: 0, health: 0, age: 0,
     stamina: genes.stamina, cooldown: 0, fed: 0, generation, activity: "wander",
-    moved: 0, dead: false,
+    moved: 0, sprinted: false, dead: false,
   };
   a.health = maxHealth(w, a);
   w.animals.push(a);
+  w.living++;
   return a;
 }
 
@@ -130,7 +132,8 @@ export function step(w: World): void {
   const animalGrid = new Grid<Animal>(o.width, o.height);
   animalGrid.fill(w.animals);
 
-  // Oldest first: the array is in birth order, babies are appended.
+  // Birth order (the order animals were made); babies are appended and
+  // first act next tick.
   const count = w.animals.length;
   for (let i = 0; i < count; i++) {
     const a = w.animals[i]!;
@@ -154,7 +157,7 @@ function stepPlants(w: World): void {
     p.age++;
     if (p.age > p.genes.lifespan) { p.dead = true; continue; }
     // plants.grow
-    const rate = Math.max(p.genes.growth / 10, p.genes.growth * (1 - po.thornGrowthCost * p.genes.thorns));
+    const rate = Math.max(p.genes.growth * po.minGrowth, p.genes.growth * (1 - po.thornGrowthCost * p.genes.thorns));
     p.food = Math.min(po.maxFood, p.food + rate);
     // plants.seed
     if (p.food >= po.maxFood && w.plants.length < po.cap && roll(w.dice) < p.genes.seedRate) {
@@ -178,24 +181,29 @@ const ready = (w: World, a: Animal) =>
 function act(w: World, a: Animal, plants: Grid<Plant>, animals: Grid<Animal>): void {
   const o = w.options, ao = o.animals;
   const sight = a.genes.sight;
+  if (a.fed > 0) a.fed--; // animals.health: counts down the ticks since eating
+  a.sprinted = false;
   const me = radius(w, a);
 
   // breed.meet
-  if (ready(w, a) && w.animals.length < o.maxAnimals) {
+  if (ready(w, a) && w.living < o.maxAnimals) {
     let mate: Animal | undefined, best = Infinity;
     animals.near(a.x, a.y, sight, (b, d) => {
       if (b !== a && b.kind === a.kind && d < best && ready(w, b)) { mate = b; best = d; }
     });
     if (mate) {
       a.activity = "mate";
-      if (best <= me + radius(w, mate) + TOUCH) breed(w, a, mate);
+      if (best <= me + radius(w, mate) + o.touch) { a.moved = 0; breed(w, a, mate); }
       else moveTo(w, a, mate.x, mate.y, best - me - radius(w, mate), false);
       return;
     }
   }
 
   // eat.plant
-  if (a.kind === "herbivore" && a.energy < ao.hungry * maxEnergy(w, a)) {
+  // Starts eating below `hungry`; once eating, keeps on until full.
+  const full = maxEnergy(w, a);
+  const wants = a.energy < (a.activity === "food" ? full : ao.hungry * full);
+  if (a.kind === "herbivore" && wants) {
     // The best value in sight: most food for the distance.
     let food: Plant | undefined, best = Infinity, value = -Infinity;
     plants.near(a.x, a.y, sight, (p, d) => {
@@ -204,7 +212,7 @@ function act(w: World, a: Animal, plants: Grid<Plant>, animals: Grid<Animal>): v
     });
     if (food) {
       a.activity = "food";
-      const touch = me + o.plants.radius + TOUCH;
+      const touch = me + o.plants.radius + o.touch;
       if (best <= touch) { a.moved = 0; bitePlant(w, a, food); }
       else moveTo(w, a, food.x, food.y, best - touch, false);
       return;
@@ -238,7 +246,7 @@ function go(w: World, a: Animal, speed: number, sprinting = false): void {
   a.x = wrap(a.x + Math.cos(a.heading) * speed, w.options.width);
   a.y = wrap(a.y + Math.sin(a.heading) * speed, w.options.height);
   a.moved = speed;
-  if (sprinting) a.stamina -= 1;
+  if (sprinting) { a.stamina -= 1; a.sprinted = true; }
 }
 
 /** breed.babies */
@@ -249,13 +257,15 @@ function breed(w: World, a: Animal, b: Animal): void {
   b.energy -= ao.breedCost * maxEnergy(w, b);
   a.cooldown = a.genes.cooldown;
   b.cooldown = b.genes.cooldown;
-  const litter = Math.max(1, Math.round(a.genes.litter));
+  // world.limit: a litter cut short by the limit shares all the energy.
+  const litter = Math.min(Math.max(1, Math.round(a.genes.litter)), w.options.maxAnimals - w.living);
   const each = (give * ao.breedEfficiency) / litter;
   const ranges = geneRanges(w.options, a.kind);
-  for (let i = 0; i < litter && w.animals.length < w.options.maxAnimals; i++) {
+  const spread = ao.birthSpread;
+  for (let i = 0; i < litter; i++) {
     const genes = childGenes(w.dice, ANIMAL_GENES, ranges, a.genes, b.genes, w.options.mutation);
-    const baby = newAnimal(w, a.kind, (a.x + b.x) / 2 + (roll(w.dice) - 0.5) * 6,
-      (a.y + b.y) / 2 + (roll(w.dice) - 0.5) * 6, genes, Math.max(a.generation, b.generation) + 1);
+    const baby = newAnimal(w, a.kind, (a.x + b.x) / 2 + (roll(w.dice) - 0.5) * spread,
+      (a.y + b.y) / 2 + (roll(w.dice) - 0.5) * spread, genes, Math.max(a.generation, b.generation) + 1);
     baby.energy = Math.min(maxEnergy(w, baby), each);
     w.totals.born[a.kind]++;
   }
@@ -268,7 +278,7 @@ function live(w: World, a: Animal): void {
   a.energy -= u.base * g.size + u.speed * g.speed * g.size + u.move * g.size * a.moved * a.moved
     + u.sight * g.sight + u.stamina * g.stamina + u.attack * g.attack + u.defence * g.defence;
   // animals.stamina: recovery when it didn't sprint this tick
-  if (a.moved <= g.speed / 2 + 1e-9) a.stamina = Math.min(g.stamina, a.stamina + ao.staminaRecovery);
+  if (!a.sprinted) a.stamina = Math.min(g.stamina, a.stamina + ao.staminaRecovery);
   if (a.energy <= 0) {
     a.energy = 0;
     a.health -= ao.starveDamage; // animals.starve
@@ -281,7 +291,6 @@ function live(w: World, a: Animal): void {
       a.energy -= heal * ao.regenCost;
     }
   }
-  if (a.fed > 0) a.fed--;
   if (a.cooldown > 0) a.cooldown--;
   a.age++;
   // animals.death
@@ -293,6 +302,7 @@ function live(w: World, a: Animal): void {
 function die(w: World, a: Animal, cause: NonNullable<Animal["cause"]>): void {
   a.dead = true;
   a.cause = cause;
+  w.living--;
   w.totals.died[a.kind]++;
   w.meat.push({ id: w.nextId++, x: a.x, y: a.y, food: w.options.animals.meatPerSize * a.genes.size });
 }

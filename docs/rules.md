@@ -16,13 +16,18 @@ what Lee remembers, plus trade-offs the original didn't have.
 - **world.wrap** The edges wrap: leaving the right edge brings you in on the
   left, and so on. Distances and directions always take the short way round.
 - **world.tick** Time moves in ticks. Each tick, in order: plants grow and
-  seed; each animal (oldest first) senses, decides, moves, eats or fights,
+  seed; each animal (in birth order) senses, decides, moves, eats or fights,
   pays its upkeep and ages; the dead turn to meat; meat rots.
 - **world.start** A new world starts with `start.plants`, `start.herbivores`
   and `start.carnivores`, spread at random, with genes drawn from each
-  kind's start range. Starting animals are adults of random age.
+  kind's start range. Starting animals are adults of random age (up to
+  `start.ageFraction` of lifespan) with `start.energy`; starting plants have
+  `start.plantFood`.
 - **world.limit** `maxAnimals` is a guard for the browser, not a rule of
-  life: when the world holds that many animals, no more are born.
+  life: when the world holds that many living animals, no more are born. A
+  litter cut short shares all the energy the parents gave.
+- **world.touch** Two things touch when the gap between their edges is at
+  most `touch` points, so rounding can't leave an animal a hair short.
 
 ## dice
 
@@ -73,7 +78,7 @@ Plant genes:
 ## plants
 
 - **plants.grow** Each tick a plant grows `growth` × (1 − `thornGrowthCost`
-  × thorns) food (at least a tenth of `growth`), up to `maxFood`.
+  × thorns) food (at least `minGrowth` × `growth`), up to `maxFood`.
 - **plants.seed** A fully grown plant drops a seed with chance `seedRate`
   each tick, if the world holds fewer than `cap` plants. The seed lands a
   random distance up to `spread` away, in a random direction, costs the
@@ -98,7 +103,7 @@ Plant genes:
   it can only cruise. Not sprinting, it gets back `staminaRecovery` a tick,
   up to its stamina gene.
 - **animals.health** With energy above zero, health recovers `regen` a tick,
-  `regenFedFactor` times faster for `fedTicks` ticks after eating. Each
+  `regenFedFactor` times faster for `fedTicks` ticks counting the tick it ate. Each
   health point recovered costs `regenCost` energy.
 - **animals.starve** With no energy left, it loses `starveDamage` health a
   tick.
@@ -115,10 +120,7 @@ Plant genes:
   cruises to the best plant it sees with at least `minPlantFood`: the most
   food for the distance (food ÷ (distance + `plantDistanceWeight`)). Once
   touching it takes a bite each tick: up to `bitePerSize` × size food,
-  turned into energy one for one, until full.
-
-- **touch** Two things touch when the gap between their edges is at most
-  `TOUCH` (1 point), so rounding can't leave an animal a hair short.
+  turned into energy one for one. Once eating, it keeps on until full.
 
 ## meat
 
@@ -135,8 +137,9 @@ Plant genes:
 - **breed.babies** Each parent gives `breedCost` of its own max energy.
   `breedEfficiency` of the total becomes the babies' energy, split equally
   between the litter (the first parent's litter gene, rounded, at least 1).
-  Babies appear beside the parents, age 0. Both parents start their cooldown.
-  A baby's generation is one more than its older parent's.
+  Babies appear beside the parents (within `birthSpread`), age 0, and first
+  act the next tick. Both parents start their cooldown. A baby's generation
+  is one more than its higher-generation parent's.
 
 ## Coming in M2 (the food chain)
 

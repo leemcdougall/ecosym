@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ANIMAL_GENES, childGenes, createWorld, defaultOptions, delta, distance, Grid, makeDice,
-  maxEnergy, maxHealth, roll, step, wrap, type Animal, type Plant, type World,
+  maxEnergy, maxHealth, radius, roll, step, wrap, type Animal, type Plant, type World,
 } from "../src/index.js";
 
 /** An empty world: no plants, no animals, no sprouts. */
@@ -16,12 +16,13 @@ function addHerbivore(w: World, x: number, y: number, genes: Partial<Animal["gen
   const a: Animal = {
     id: w.nextId++, kind: "herbivore", x, y, heading: 0, genes: { ...g, ...genes },
     energy: 0, health: 0, age: 0, stamina: 0, cooldown: 0, fed: 0, generation: 0,
-    activity: "wander", moved: 0, dead: false,
+    activity: "wander", moved: 0, sprinted: false, dead: false,
   };
   a.energy = maxEnergy(w, a) / 2;
   a.health = maxHealth(w, a);
   a.stamina = a.genes.stamina;
   w.animals.push(a);
+  w.living++;
   return a;
 }
 
@@ -58,6 +59,32 @@ describe("world", () => {
     g.near(3, 500, 20, (_, d) => found.push(d));
     expect(found).toHaveLength(1);
     expect(found[0]).toBeCloseTo(8);
+  });
+
+  it("world.wrap: a tiny negative wraps to 0, never to the width", () => {
+    expect(wrap(-1e-14, 1600)).toBeLessThan(1600);
+  });
+
+  it("world.touch: things touch within `touch` points of their edges", () => {
+    const w = empty();
+    const a = addHerbivore(w, 500, 500, { size: 1 });
+    const gap = radius(w, a) + w.options.plants.radius + w.options.touch - 0.01;
+    const p = addPlant(w, 500 + gap, 500, 30);
+    step(w);
+    expect(p.food).toBeLessThan(30); // bitten without moving
+  });
+
+  it("world.tick: animals act in birth order", () => {
+    // Two ready herbivores both see a third; the first-made one breeds with it.
+    const w = empty();
+    const first = addHerbivore(w, 500, 500);
+    const second = addHerbivore(w, 510, 500);
+    const mid = addHerbivore(w, 505, 500, { size: 0.5 });
+    for (const x of [first, second, mid]) { x.age = x.genes.maturity; x.energy = maxEnergy(w, x); }
+    step(w);
+    expect(first.cooldown).toBeGreaterThan(0);
+    expect(mid.cooldown).toBeGreaterThan(0);
+    expect(second.cooldown).toBe(0);
   });
 
   it("world.start: a new world has the starting numbers", () => {
@@ -178,6 +205,13 @@ describe("plants", () => {
     expect(w.plants[0]!.generation).toBe(0);
   });
 
+  it("genes.plant: a seed copies its one parent when nothing mutates", () => {
+    const w = empty({ mutation: { chance: 0 } });
+    const p = addPlant(w, 500, 500, w.options.plants.maxFood, { seedRate: 0.05, spread: 30, growth: 0.3, lifespan: 9000, thorns: 2 });
+    for (let i = 0; i < 200 && w.plants.length < 2; i++) step(w);
+    expect(w.plants[1]!.genes).toEqual(p.genes);
+  });
+
   it("plants.die: a plant dies of old age", () => {
     const w = empty();
     addPlant(w, 100, 100, 10, { lifespan: 1 });
@@ -247,6 +281,50 @@ describe("animals", () => {
     expect(a.health).toBeCloseTo(1 + ao.regen + ao.regen * ao.regenFedFactor);
   });
 
+  it("animals.health: each health point recovered costs regenCost energy", () => {
+    const w = empty({ animals: { upkeep: { base: 0, speed: 0, move: 0, sight: 0, stamina: 0, attack: 0, defence: 0 } } });
+    const ao = w.options.animals;
+    const a = addHerbivore(w, 500, 500);
+    a.energy = maxEnergy(w, a);
+    a.health = 1;
+    step(w);
+    expect(a.energy).toBeCloseTo(maxEnergy(w, a) - ao.regen * ao.regenCost, 9);
+  });
+
+  it("animals.health: fast healing lasts fedTicks ticks, counting the tick it ate", () => {
+    const w = empty({ animals: { minPlantFood: 1 } });
+    const a = addHerbivore(w, 500, 500);
+    addPlant(w, 502, 500, 2); // one bite eats it all
+    let fast = 0;
+    for (let i = 0; i < w.options.animals.fedTicks + 5; i++) {
+      a.health = 1;
+      step(w);
+      if (a.health > 1 + w.options.animals.regen * 1.5) fast++;
+    }
+    expect(fast).toBe(w.options.animals.fedTicks);
+  });
+
+  it("animals.body: energy, health and radius grow with size", () => {
+    const w = empty();
+    const ao = w.options.animals;
+    const a = addHerbivore(w, 500, 500, { size: 2 });
+    expect(maxEnergy(w, a)).toBe(ao.energyPerSize * 2);
+    expect(maxHealth(w, a)).toBe(ao.healthPerSize * 2);
+    expect(radius(w, a)).toBe(ao.radiusBase + ao.radiusPerSize * 2);
+  });
+
+  it("animals.stamina: walking recovers stamina up to the gene", () => {
+    const w = empty();
+    const a = addHerbivore(w, 500, 500, { stamina: 100 });
+    a.energy = maxEnergy(w, a);
+    a.stamina = 10;
+    step(w);
+    expect(a.stamina).toBe(10 + w.options.animals.staminaRecovery);
+    a.stamina = 100;
+    step(w);
+    expect(a.stamina).toBe(100);
+  });
+
   it("animals.wander: with nothing to do it moves at cruising speed", () => {
     const w = empty();
     const a = addHerbivore(w, 500, 500);
@@ -266,6 +344,25 @@ describe("eating", () => {
     for (let i = 0; i < 60; i++) step(w);
     expect(a.energy).toBeGreaterThan(e0);
     expect(p.food).toBeLessThan(30);
+  });
+
+  it("eat.plant: picks the most food for the distance, not the nearest", () => {
+    const w = empty();
+    const a = addHerbivore(w, 500, 500, { sight: 80 });
+    addPlant(w, 515, 500, 6); // near, nearly eaten: 6 / (15 + 10)
+    const rich = addPlant(w, 440, 500, 60); // further, full: 60 / (60 + 10)
+    step(w);
+    expect(a.x).toBeLessThan(500);
+    expect(rich.food).toBe(60);
+  });
+
+  it("eat.plant: once eating it keeps on until full, not just past hungry", () => {
+    const w = empty();
+    const a = addHerbivore(w, 500, 500);
+    addPlant(w, 502, 500, 60, { growth: 0 });
+    a.energy = maxEnergy(w, a) * w.options.animals.hungry - 0.5;
+    for (let i = 0; i < 20; i++) step(w);
+    expect(a.energy).toBeGreaterThan(maxEnergy(w, a) * 0.95);
   });
 
   it("eat.plant: plants out of sight are not seen", () => {
@@ -298,6 +395,34 @@ describe("breeding", () => {
     return [a, b] as const;
   }
 
+  it("breed.babies: a baby's generation is one more than its higher parent's", () => {
+    const w = empty();
+    const [a, b] = pair(w);
+    a.generation = 3;
+    b.generation = 5;
+    step(w);
+    for (const baby of w.animals.filter((x) => x !== a && x !== b)) expect(baby.generation).toBe(6);
+  });
+
+  it("breed.babies: litter is the first parent's gene, rounded, at least 1", () => {
+    for (const [gene, want] of [[2.6, 3], [0.2, 1]] as const) {
+      const w = empty();
+      const [a, b] = pair(w);
+      a.genes.litter = gene;
+      b.genes.litter = 6;
+      step(w);
+      expect(w.animals.length - 2).toBe(want);
+    }
+  });
+
+  it("breed.babies: breeding is not charged as movement", () => {
+    const w = empty();
+    const [a] = pair(w);
+    a.moved = 3;
+    step(w);
+    expect(a.moved).toBe(0);
+  });
+
   it("breed.babies: two ready animals that touch make a litter", () => {
     const w = empty();
     const [a, b] = pair(w);
@@ -320,9 +445,8 @@ describe("breeding", () => {
     const given = ao.breedCost * (maxEnergy(w, a) + maxEnergy(w, b));
     step(w);
     const babies = w.animals.filter((x) => x !== a && x !== b);
-    // Each baby got its share, then paid one tick of upkeep.
-    for (const baby of babies) expect(baby.energy).toBeGreaterThan((given * ao.breedEfficiency) / 2 - 1);
-    for (const baby of babies) expect(baby.energy).toBeLessThanOrEqual((given * ao.breedEfficiency) / 2);
+    // Babies first act (and pay upkeep) the tick after they're born.
+    for (const baby of babies) expect(baby.energy).toBeCloseTo((given * ao.breedEfficiency) / 2, 9);
   });
 
   it("breed.ready: young, tired or hungry animals don't breed", () => {
@@ -346,6 +470,28 @@ describe("breeding", () => {
     for (const x of [a, b]) { x.age = x.genes.maturity; x.energy = maxEnergy(w, x); }
     for (let i = 0; i < 40 && w.animals.length === 2; i++) step(w);
     expect(w.animals.length).toBeGreaterThan(2);
+  });
+
+  it("world.limit: a litter cut short by the limit shares all the energy", () => {
+    const w = empty({ maxAnimals: 3, mutation: { chance: 0 } });
+    const [a, b] = pair(w);
+    a.genes.litter = 3;
+    const ao = w.options.animals;
+    const given = ao.breedCost * (maxEnergy(w, a) + maxEnergy(w, b));
+    step(w);
+    expect(w.animals).toHaveLength(3);
+    const baby = w.animals[2]!;
+    expect(baby.energy).toBeCloseTo(Math.min(maxEnergy(w, baby), given * ao.breedEfficiency), 9);
+  });
+
+  it("world.limit: animals that died this tick don't count", () => {
+    const w = empty({ maxAnimals: 3 });
+    const old = addHerbivore(w, 100, 100, { lifespan: 5 });
+    old.age = 5; // dies of old age in its live() this tick, before the pair acts
+    const [a, b] = pair(w);
+    step(w);
+    expect(old.dead).toBe(true);
+    expect(w.animals.filter((x) => x !== a && x !== b)).toHaveLength(1);
   });
 
   it("world.limit: no babies once the world holds maxAnimals", () => {

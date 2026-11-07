@@ -3,7 +3,9 @@
 
 export function wrap(v: number, size: number): number {
   v %= size;
-  return v < 0 ? v + size : v;
+  if (v < 0) v += size;
+  return v >= size ? 0 : v; // -1e-14 + size rounds to size
+
 }
 
 /** Shortest signed difference b - a on a loop of length size. */

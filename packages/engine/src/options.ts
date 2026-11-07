@@ -22,7 +22,17 @@ export type PlantGeneRanges = Record<PlantGene, GeneRange>;
 export interface WorldOptions {
   width: number;
   height: number;
-  start: { plants: number; herbivores: number; carnivores: number };
+  start: {
+    plants: number; herbivores: number; carnivores: number;
+    /** Starting plants' food, as a share of maxFood: [lo, hi]. */
+    plantFood: [number, number];
+    /** Starting animals' energy, as a share of max: [lo, hi]. */
+    energy: [number, number];
+    /** Starting ages go up to this share of lifespan (animals: at least maturity). */
+    ageFraction: number;
+  };
+  /** world.touch: points of gap between edges that still count as touching. */
+  touch: number;
   /** genes.mutate: changeable while the world runs. */
   mutation: { chance: number; size: number };
   maxAnimals: number;
@@ -34,6 +44,8 @@ export interface WorldOptions {
     seedCost: number;
     sproutChance: number;
     thornGrowthCost: number;
+    /** plants.grow never falls below this share of the growth gene. */
+    minGrowth: number;
     radius: number;
     genes: PlantGeneRanges;
   };
@@ -61,6 +73,7 @@ export interface WorldOptions {
     breedCost: number;
     breedEfficiency: number;
     turnJitter: number;
+    birthSpread: number;
   };
   herbivores: { genes: AnimalGeneRanges };
   carnivores: { genes: AnimalGeneRanges };
@@ -88,7 +101,8 @@ export function defaultOptions(): WorldOptions {
   return {
     width: 1600,
     height: 1000,
-    start: { plants: 900, herbivores: 120, carnivores: 0 },
+    start: { plants: 900, herbivores: 120, carnivores: 0, plantFood: [0.5, 1], energy: [0.6, 0.9], ageFraction: 0.5 },
+    touch: 1,
     mutation: { chance: 0.1, size: 0.05 },
     maxAnimals: 4000,
     meatRot: 0.04,
@@ -99,6 +113,7 @@ export function defaultOptions(): WorldOptions {
       seedCost: 10,
       sproutChance: 0.05,
       thornGrowthCost: 0.06,
+      minGrowth: 0.1,
       radius: 2.5,
       genes: {
         seedRate: { min: 0.0002, max: 0.05, start: [0.003, 0.006] },
@@ -132,6 +147,7 @@ export function defaultOptions(): WorldOptions {
       breedCost: 0.25,
       breedEfficiency: 0.8,
       turnJitter: 0.3,
+      birthSpread: 6,
     },
     herbivores: { genes: animalGenes({}) },
     carnivores: {
