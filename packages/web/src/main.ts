@@ -36,7 +36,6 @@ for (const s of SPEEDS) {
   b.textContent = `${s}×`;
   b.setAttribute("aria-pressed", String(s === speed));
   b.onclick = () => {
-    b.blur(); // so Space doesn't click it again
     speed = s;
     for (const o of speedsEl.children) o.setAttribute("aria-pressed", String(o === b));
   };
@@ -46,13 +45,15 @@ const togglePause = () => {
   paused = !paused;
   pauseBtn.textContent = paused ? "Play" : "Pause";
 };
-pauseBtn.onclick = () => { pauseBtn.blur(); togglePause(); };
+pauseBtn.onclick = togglePause;
+// Space pauses, unless a button has focus: then Space presses that button.
+const spaceForPause = (e: KeyboardEvent) => e.code === "Space" && !(e.target instanceof HTMLButtonElement);
 addEventListener("keydown", (e) => {
-  if (e.code !== "Space") return;
+  if (!spaceForPause(e)) return;
   e.preventDefault();
   if (!e.repeat) togglePause();
 });
-addEventListener("keyup", (e) => { if (e.code === "Space") e.preventDefault(); });
+addEventListener("keyup", (e) => { if (spaceForPause(e)) e.preventDefault(); });
 
 /** Fit the canvas to the space it has, keeping the world's shape. */
 function fit(): void {
@@ -70,7 +71,10 @@ function fit(): void {
 // Refit whenever the space changes: window size, the header wrapping, or a
 // move to a screen with a different pixel density.
 new ResizeObserver(fit).observe(canvas.parentElement!);
-matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener("change", fit);
+function watchDensity(): void {
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener("change", () => { fit(); watchDensity(); }, { once: true });
+}
+watchDensity();
 fit();
 
 /** Shade of a kind's colour by speed, across the speed gene's range: faster is brighter. */
