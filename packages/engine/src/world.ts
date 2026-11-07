@@ -129,7 +129,10 @@ export function step(w: World): void {
 
   const plantGrid = new Grid<Plant>(o.width, o.height);
   plantGrid.fill(w.plants);
-  const animalGrid = new Grid<Animal>(o.width, o.height);
+  // Animals move as they act, so the grid is told how far they can go in a tick.
+  let drift = 0;
+  for (const a of w.animals) if (a.genes.speed > drift) drift = a.genes.speed;
+  const animalGrid = new Grid<Animal>(o.width, o.height, undefined, drift);
   animalGrid.fill(w.animals);
 
   // Birth order (the order animals were made); babies are appended and

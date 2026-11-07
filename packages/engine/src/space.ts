@@ -10,14 +10,49 @@ export function wrap(v: number, size: number): number {
 
 /** Shortest signed difference b - a on a loop of length size. */
 export function delta(a: number, b: number, size: number): number {
-  let d = (b - a) % size;
+  let d = b - a;
+  if (d >= size || d <= -size) d %= size; // % only for far-apart inputs
   if (d > size / 2) d -= size;
   else if (d < -size / 2) d += size;
   return d;
 }
 
 export function distance(ax: number, ay: number, bx: number, by: number, w: number, h: number): number {
-  return Math.hypot(delta(ax, bx, w), delta(ay, by, h));
+  return hypot2(delta(ax, bx, w), delta(ay, by, h));
+}
+
+/** Smallest distance from 0 to the span [lo, lo + len], also across the loop edge. */
+function gap(lo: number, len: number, size: number, reach: number): number {
+  const g = lo > 0 ? lo : lo + len < 0 ? -(lo + len) : 0;
+  // Going the other way round is at least size - g - len; usually that is far.
+  if (g <= reach || size - g - len > reach) return g;
+  let best = g;
+  for (let k = -1; k <= 1; k += 2) {
+    const l = lo + k * size, hi = l + len;
+    const e = l > 0 ? l : hi < 0 ? -hi : 0;
+    if (e < best) best = e;
+  }
+  return best;
+}
+
+/**
+ * Math.hypot(a, b) without the call overhead, giving the very same bits: the
+ * scaled, compensated sum V8 uses. A test compares it with Math.hypot.
+ */
+export function hypot2(a: number, b: number): number {
+  const x = a < 0 ? -a : a, y = b < 0 ? -b : b;
+  const max = x > y ? x : y;
+  if (max === 0) return 0;
+  if (max !== max || max === Infinity) return Math.hypot(a, b);
+  const nx = x / max;
+  let sum = nx * nx;
+  let comp = 0;
+  const ny = y / max;
+  const summand = ny * ny - comp;
+  const prelim = sum + summand;
+  comp = (prelim - sum) - summand;
+  sum = prelim;
+  return Math.sqrt(sum) * max;
 }
 
 export interface Placed { x: number; y: number }
@@ -26,7 +61,8 @@ export class Grid<T extends Placed> {
   private cols: number;
   private rows: number;
   private cells: T[][];
-  constructor(private w: number, private h: number, private cell = 64) {
+  /** `drift`: the farthest anything can move after fill(); cells are searched with that much extra room. */
+  constructor(private w: number, private h: number, private cell = 64, private drift = 0) {
     this.cols = Math.max(1, Math.floor(w / cell));
     this.rows = Math.max(1, Math.floor(h / cell));
     this.cells = Array.from({ length: this.cols * this.rows }, () => []);
@@ -56,14 +92,29 @@ export class Grid<T extends Placed> {
     // last one) so the order of calls stays the same.
     const lastDr = 2 * rr === this.rows ? rr - 1 : rr;
     const lastDc = 2 * rc === this.cols ? rc - 1 : rc;
+    const { w, h, cols, rows } = this;
+    const hw = w / 2, hh = h / 2;
+    const reach = radius * (1 + 1e-9) + 1e-6;
+    const far = reach + this.drift; // a cell's items may have moved since fill()
     for (let dr = -rr; dr <= lastDr; dr++) {
-      const r = ((r0 + dr) % this.rows + this.rows) % this.rows;
+      const rawR = r0 + dr;
+      const r = rawR < 0 ? rawR + rows : rawR >= rows ? rawR - rows : rawR;
+      // Rows and columns that cannot hold anything in reach are skipped: they
+      // would call nothing, so the order of calls stays the same.
+      if (gap(rawR * ch - y, ch, h, far) > far) continue;
       for (let dc = -rc; dc <= lastDc; dc++) {
-        const c = ((c0 + dc) % this.cols + this.cols) % this.cols;
-        for (const it of this.cells[r * this.cols + c]!) {
-          const dx = delta(x, it.x, this.w), dy = delta(y, it.y, this.h);
+        const rawC = c0 + dc;
+        if (gap(rawC * cw - x, cw, w, far) > far) continue;
+        const c = rawC < 0 ? rawC + cols : rawC >= cols ? rawC - cols : rawC;
+        const cell = this.cells[r * cols + c]!;
+        for (let i = 0; i < cell.length; i++) {
+          const it = cell[i]!;
+          // delta without %: both coordinates are inside the world
+          let dx = it.x - x, dy = it.y - y;
+          if (dx > hw) dx -= w; else if (dx < -hw) dx += w;
+          if (dy > hh) dy -= h; else if (dy < -hh) dy += h;
           if (dx * dx + dy * dy > r2) continue;
-          const d = Math.hypot(dx, dy);
+          const d = hypot2(dx, dy);
           if (d <= radius) fn(it, d);
         }
       }

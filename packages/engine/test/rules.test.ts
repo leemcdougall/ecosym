@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { hypot2 } from "../src/space.js";
 import {
   ANIMAL_GENES, childGenes, createWorld, defaultOptions, delta, distance, Grid, makeDice,
   maxEnergy, maxHealth, radius, roll, step, wrap, type Animal, type Plant, type World,
@@ -552,5 +553,45 @@ describe("meat", () => {
     expect(w.meat[0]!.food).toBeCloseTo(0.5);
     step(w);
     expect(w.meat).toHaveLength(0);
+  });
+
+  it("world.wrap: hypot2 gives the very same bits as Math.hypot", () => {
+    const dice = makeDice(11);
+    for (let i = 0; i < 200000; i++) {
+      const sc = 10 ** (roll(dice) * 6 - 3);
+      const a = (roll(dice) - 0.5) * sc, b = (roll(dice) - 0.5) * sc * (i % 3 ? 1 : 0.01);
+      expect(hypot2(a, b)).toBe(Math.hypot(a, b));
+    }
+    expect(hypot2(0, 0)).toBe(0);
+    expect(hypot2(-3, 4)).toBe(5);
+  });
+
+  it("world.wrap: the grid finds exactly what a full scan finds, in the same order, near every edge", () => {
+    const dice = makeDice(5);
+    type P = { x: number; y: number };
+    const w = 1600, h = 1000;
+    const items: P[] = Array.from({ length: 600 }, () => ({ x: roll(dice) * w, y: roll(dice) * h }));
+    const g = new Grid<P>(w, h);
+    g.fill(items);
+    for (let k = 0; k < 300; k++) {
+      const x = k % 3 === 0 ? roll(dice) * 20 : k % 3 === 1 ? w - roll(dice) * 20 : roll(dice) * w;
+      const y = k % 2 ? roll(dice) * 20 : roll(dice) * h;
+      const radius = 5 + roll(dice) * 150;
+      const got = new Set<P>(), d: number[] = [];
+      g.near(x, y, radius, (it, dist) => { got.add(it); d.push(dist); });
+      const want = items.filter((it) => distance(x, y, it.x, it.y, w, h) <= radius);
+      expect(got.size).toBe(want.length);
+      for (const it of want) expect(got.has(it)).toBe(true);
+    }
+  });
+
+  it("world.wrap: the grid still finds things that moved after fill, within its drift", () => {
+    const g = new Grid<{ x: number; y: number }>(1000, 1000, 100, 5);
+    const it = { x: 99, y: 500 }; // filled in the cell ending at x = 100
+    g.fill([it]);
+    it.x = 103; // moved 4 into the next cell
+    const found: number[] = [];
+    g.near(160, 500, 60, (_, d) => found.push(d));
+    expect(found).toHaveLength(1);
   });
 });
