@@ -643,17 +643,17 @@ describe("meat", () => {
     expect(lost).toBeGreaterThan(0); // the allowance is what keeps them
   });
 
-  it("world.tick: a crowded, fast world matches the results of a plain scan of every look (values from the version without cell skipping)", () => {
-    const w = createWorld(4, {
+  it("world.tick: a crowded, fast world matches the results of a plain scan of every look (values from the version without cell skipping; seed 3 is one where a missing drift allowance shows)", () => {
+    const w = createWorld(3, {
       start: { plants: 1200, herbivores: 1500, carnivores: 0 }, plants: { cap: 1200 },
       herbivores: { genes: { speed: { min: 0.2, max: 5, start: [4, 5] }, sight: { min: 5, max: 250, start: [30, 60] } } },
     } as never);
     for (let t = 0; t < 400; t++) step(w);
     let sx = 0, sy = 0;
     for (const a of w.animals) if (!a.dead) { sx += a.x; sy += a.y; }
-    expect([w.living, w.plants.length, w.meat.length]).toEqual([2705, 1199, 1]);
-    expect(sx).toBeCloseTo(2142568.538649, 5);
-    expect(sy).toBeCloseTo(1374595.526587, 5);
+    expect([w.living, w.plants.length, w.meat.length]).toEqual([2686, 1200, 0]);
+    expect(sx).toBe(2098821.187289715);
+    expect(sy).toBe(1349103.1503635237);
   });
 
   it("world.wrap: the grid still finds things that moved after fill, within its drift", () => {
