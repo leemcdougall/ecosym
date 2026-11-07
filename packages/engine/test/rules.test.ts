@@ -723,15 +723,18 @@ describe("food chain", () => {
   });
 
   it("meat.eat: picks the most food for the distance, and ignores scraps below minMeatFood", () => {
-    const w = still();
+    const w = empty({ animals: { regen: 0, minMeatFood: 20, meatDistanceWeight: 10 } });
     const c = addCarnivore(w, 500, 500);
     c.energy = maxEnergy(w, c) * 0.3;
-    w.meat.push({ id: w.nextId++, x: 510, y: 500, food: w.options.animals.minMeatFood - 0.5 }); // scrap, nearest
-    w.meat.push({ id: w.nextId++, x: 500, y: 530, food: 10 }); // near, small: 10 / 40
-    w.meat.push({ id: w.nextId++, x: 450, y: 500, food: 60 }); // farther, big: 60 / 60
+    const scrap = { id: w.nextId++, x: 500, y: 500, food: 15 }; // 15 / 10: best, if it counted
+    w.meat.push(scrap);
+    w.meat.push({ id: w.nextId++, x: 500, y: 520, food: 40 }); // 40 / 30: best that counts
+    w.meat.push({ id: w.nextId++, x: 450, y: 500, food: 60 }); // 60 / 60: biggest
     step(w);
     expect(c.activity).toBe("food");
-    expect(c.x).toBeLessThan(500);
+    expect(scrap.food).toBeCloseTo(15 - w.options.meatRot); // not eaten
+    expect(c.y).toBeGreaterThan(500); // heading for the 40, not the 60
+    expect(c.x).toBeCloseTo(500);
   });
 
   it("hunt.sizeup: the bar is (1 − boldness) × (1 − hungerBoldness × (1 − energy share))", () => {
