@@ -51,6 +51,7 @@ button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent);
   background: var(--dot);
 }
 .counts .extinct { color: var(--muted); text-decoration: line-through; }
+.counts .extinct::before { opacity: 0.3; }
 main { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
 canvas { display: block; max-width: 100%; max-height: 100%; background: #070a09; border-radius: 4px; }
 .speeds { display: contents; }
