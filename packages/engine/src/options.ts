@@ -105,9 +105,9 @@ export function defaultOptions(): WorldOptions {
     touch: 1,
     mutation: { chance: 0.1, size: 0.05 },
     maxAnimals: 4000,
-    meatRot: 0.04,
+    meatRot: 0.2,
     plants: {
-      cap: 1600,
+      cap: 500,
       maxFood: 60,
       seedFood: 5,
       seedCost: 10,
