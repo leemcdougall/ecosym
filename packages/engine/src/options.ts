@@ -68,12 +68,23 @@ export interface WorldOptions {
     hungry: number;
     minPlantFood: number;
     plantDistanceWeight: number;
+    minMeatFood: number;
+    meatDistanceWeight: number;
     bitePerSize: number;
     breedEnergy: number;
     breedCost: number;
     breedEfficiency: number;
     turnJitter: number;
     birthSpread: number;
+  };
+  /** hunt.* and fight.* */
+  fight: {
+    /** A blow is at least this share of the striker's attack. */
+    minDamage: number;
+    /** How far hunger lowers the size-up bar (0: not at all, 1: to nothing when empty). */
+    hungerBoldness: number;
+    /** hunt.cannibal: below this share of max energy, carnivores hunt carnivores. */
+    cannibalHungry: number;
   };
   herbivores: { genes: AnimalGeneRanges };
   carnivores: { genes: AnimalGeneRanges };
@@ -101,7 +112,7 @@ export function defaultOptions(): WorldOptions {
   return {
     width: 1600,
     height: 1000,
-    start: { plants: 500, herbivores: 120, carnivores: 0, plantFood: [0.5, 1], energy: [0.6, 0.9], ageFraction: 0.5 },
+    start: { plants: 500, herbivores: 250, carnivores: 25, plantFood: [0.5, 1], energy: [0.6, 0.9], ageFraction: 0.5 },
     touch: 1,
     mutation: { chance: 0.1, size: 0.05 },
     maxAnimals: 4000,
@@ -138,10 +149,12 @@ export function defaultOptions(): WorldOptions {
       fedTicks: 60,
       regenCost: 0.5,
       starveDamage: 0.2,
-      meatPerSize: 60,
+      meatPerSize: 90,
       hungry: 0.8,
       minPlantFood: 5,
       plantDistanceWeight: 10,
+      minMeatFood: 2,
+      meatDistanceWeight: 10,
       bitePerSize: 3,
       breedEnergy: 0.6,
       breedCost: 0.25,
@@ -149,9 +162,10 @@ export function defaultOptions(): WorldOptions {
       turnJitter: 0.3,
       birthSpread: 6,
     },
+    fight: { minDamage: 0.2, hungerBoldness: 0.7, cannibalHungry: 0.5 },
     herbivores: { genes: animalGenes({}) },
     carnivores: {
-      genes: animalGenes({ speed: [1.4, 2.0], attack: [2, 4], sight: [70, 110] }),
+      genes: animalGenes({ speed: [1.4, 2.0], attack: [2, 4], sight: [70, 110], size: [1.4, 1.8] }),
     },
   };
 }

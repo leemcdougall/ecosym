@@ -85,6 +85,9 @@ Plant genes:
   parent `seedCost` food, and starts with `seedFood` food.
 - **plants.sprout** Each tick there is also `sproutChance` of a new plant
   appearing at a random place with start-range genes (seeds blowing in).
+- **plants.thorns** Each bite of a plant hurts the herbivore biting it by
+  thorns − its defence health (nothing if defence is higher). Herbivores
+  don't avoid thorny plants; they just get hurt.
 - **plants.die** A plant dies when its food drops below 1 (eaten) or at the
   end of its lifespan.
 
@@ -108,7 +111,9 @@ Plant genes:
 - **animals.starve** With no energy left, it loses `starveDamage` health a
   tick.
 - **animals.death** An animal dies when its health reaches zero or its age
-  passes its lifespan. Every dead animal leaves meat: `meatPerSize` × size.
+  passes its lifespan. Every dead animal leaves meat: `meatPerSize` × size,
+  times age ÷ maturity for the young (babies leave almost none, so eating
+  babies never makes more food than the babies cost).
 - **animals.sense** An animal knows about everything within its sight
   (measured from centre to centre, across the wrapped edges).
 - **animals.wander** With nothing to do it cruises, turning a little at
@@ -124,6 +129,11 @@ Plant genes:
 
 ## meat
 
+- **meat.eat** A carnivore that wants food (the same `hungry` rule as
+  herbivores) cruises to the best meat it sees with at least `minMeatFood`:
+  the most food for the distance (food ÷ (distance + `meatDistanceWeight`)).
+  Once touching it bites `bitePerSize` × size a tick, food into energy one
+  for one, until full. Meat in sight comes before hunting.
 - **meat.rot** Each tick every piece of meat loses `meatRot` food; at zero it
   is gone.
 
@@ -141,19 +151,36 @@ Plant genes:
   act the next tick. Both parents start their cooldown. A baby's generation
   is one more than its higher-generation parent's.
 
-## Coming in M2 (the food chain)
+## hunt
 
-Not built yet; sections to be written with the code: `hunt.sizeup`,
-`hunt.chase`, `hunt.cannibal`, `fight.damage`, `fight.flee`, `meat.eat`,
-`plants.thorns`. Agreed shape (grilling, 7 Nov 2026):
+Carnivores hunt; herbivores and hunted carnivores decide whether to fight
+or flee. All settings here are in `fight` unless named otherwise.
 
-- Carnivores chase herbivores and eat meat. Hungry carnivores with no
-  herbivore or meat in sight hunt other carnivores.
-- Before attacking, an animal sizes up the fight: its chance of winning,
-  from both sides' attack, defence and health. It attacks if that chance
-  beats a bar set by its boldness, lowered by hunger.
-- Herbivores use the same rule to fight or flee.
-- In a fight, each tick each side deals its attack minus the other's
-  defence (at least a little).
-- Carnivores eat meat.
-- Each bite of a thorny plant hurts by thorns minus the herbivore's defence.
+- **hunt.sizeup** Before a fight an animal sizes it up. Each side's blow is
+  worked out by `fight.damage`. Ticks for me to win = their health ÷ my
+  blow; ticks for them to win = my health ÷ their blow. My chance of winning
+  is their ticks ÷ (my ticks + their ticks): 1 if they can't hurt me, 0 if I
+  can't hurt them. I take the fight if that chance is above my bar:
+  (1 − boldness) × (1 − `hungerBoldness` × (1 − energy ÷ max energy)).
+  Bold animals take more risks, and hunger lowers the bar.
+- **hunt.chase** A carnivore that wants food, with no meat in sight,
+  sprints after the nearest herbivore it sees whose size-up it would take.
+  That herbivore is its target. When they touch, it attacks
+  (`fight.damage`); reaching touch during this tick's move is enough.
+- **hunt.cannibal** A carnivore with energy below `cannibalHungry` of max,
+  and no meat or herbivore in sight at all, hunts the nearest other carnivore
+  it sees whose size-up it would take, the same way.
+
+## fight
+
+- **fight.damage** When a hunter touches its target it strikes, and the
+  target strikes back in the same moment. A blow does the striker's attack
+  − the other's defence, but at least `minDamage` × attack (an animal with
+  no attack does no harm). Health at zero means killed: it dies at once and
+  leaves meat. Hunter and target both stop where they are that tick.
+- **fight.flee** Each tick, before anything else, an animal looks for the
+  nearest animal in sight that has it as a target. If there is one it sizes
+  up that fight. If it would take it, it stands its ground and carries on
+  as if nothing was there (eating, breeding, wandering); the hunter's strike
+  still brings a blow back. If not, it sprints straight away from the
+  hunter, and does nothing else that tick.
