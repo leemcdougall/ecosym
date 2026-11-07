@@ -101,13 +101,13 @@ export function defaultOptions(): WorldOptions {
   return {
     width: 1600,
     height: 1000,
-    start: { plants: 900, herbivores: 120, carnivores: 0, plantFood: [0.5, 1], energy: [0.6, 0.9], ageFraction: 0.5 },
+    start: { plants: 500, herbivores: 120, carnivores: 0, plantFood: [0.5, 1], energy: [0.6, 0.9], ageFraction: 0.5 },
     touch: 1,
     mutation: { chance: 0.1, size: 0.05 },
     maxAnimals: 4000,
     meatRot: 0.2,
     plants: {
-      cap: 500,
+      cap: 600,
       maxFood: 60,
       seedFood: 5,
       seedCost: 10,
