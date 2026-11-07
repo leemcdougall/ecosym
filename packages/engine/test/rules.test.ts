@@ -555,7 +555,7 @@ describe("meat", () => {
     expect(w.meat).toHaveLength(0);
   });
 
-  it("world.wrap: hypot2 gives the very same bits as Math.hypot", () => {
+  it("world.wrap: hypot2 gives the same bits as V8's Math.hypot, so existing seeds keep their worlds", () => {
     const dice = makeDice(11);
     for (let i = 0; i < 200000; i++) {
       const sc = 10 ** (roll(dice) * 6 - 3);
@@ -566,23 +566,94 @@ describe("meat", () => {
     expect(hypot2(-3, 4)).toBe(5);
   });
 
-  it("world.wrap: the grid finds exactly what a full scan finds, in the same order, near every edge", () => {
+  /** The order and distances a plain scan gives: cells row by row from the
+   * search's top-left, each cell's items in fill order, no cell twice. */
+  function scan<P extends { x: number; y: number }>(
+    items: P[], w: number, h: number, cell: number, x: number, y: number, radius: number,
+    home: { x: number; y: number }[] = items, // where each item was when the grid was filled
+  ): [P, number][] {
+    const cols = Math.max(1, Math.floor(w / cell)), rows = Math.max(1, Math.floor(h / cell));
+    const idx = (p: { x: number; y: number }) => Math.min(rows - 1, Math.floor((p.y / h) * rows)) * cols + Math.min(cols - 1, Math.floor((p.x / w) * cols));
+    const rc = Math.min(Math.ceil(radius / (w / cols)), Math.floor(cols / 2));
+    const rr = Math.min(Math.ceil(radius / (h / rows)), Math.floor(rows / 2));
+    const c0 = Math.floor((x / w) * cols), r0 = Math.floor((y / h) * rows);
+    const seen = new Set<number>();
+    const out: [P, number][] = [];
+    for (let dr = -rr; dr <= rr; dr++) for (let dc = -rc; dc <= rc; dc++) {
+      const c = (((r0 + dr) % rows) + rows) % rows * cols + (((c0 + dc) % cols) + cols) % cols;
+      if (seen.has(c)) continue;
+      seen.add(c);
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i]!;
+        if (idx(home[i]!) !== c) continue;
+        const d = distance(x, y, it.x, it.y, w, h);
+        if (d <= radius) out.push([it, d]);
+      }
+    }
+    return out;
+  }
+
+  it("world.wrap: the grid finds what a plain scan finds, same order and distances, near every edge and across the whole world", () => {
     const dice = makeDice(5);
     type P = { x: number; y: number };
-    const w = 1600, h = 1000;
-    const items: P[] = Array.from({ length: 600 }, () => ({ x: roll(dice) * w, y: roll(dice) * h }));
-    const g = new Grid<P>(w, h);
-    g.fill(items);
-    for (let k = 0; k < 300; k++) {
-      const x = k % 3 === 0 ? roll(dice) * 20 : k % 3 === 1 ? w - roll(dice) * 20 : roll(dice) * w;
-      const y = k % 2 ? roll(dice) * 20 : roll(dice) * h;
-      const radius = 5 + roll(dice) * 150;
-      const got = new Set<P>(), d: number[] = [];
-      g.near(x, y, radius, (it, dist) => { got.add(it); d.push(dist); });
-      const want = items.filter((it) => distance(x, y, it.x, it.y, w, h) <= radius);
-      expect(got.size).toBe(want.length);
-      for (const it of want) expect(got.has(it)).toBe(true);
+    // 25 by 15 cells (odd rows), 10 by 10 cells (even count: the repeat skip),
+    // and 2 by 2 cells with a search reaching half the world.
+    for (const [w, h, cell] of [[1600, 1000, 64], [1000, 1000, 100], [200, 200, 100]] as const) {
+      const items: P[] = Array.from({ length: 400 }, () => ({ x: roll(dice) * w, y: roll(dice) * h }));
+      const g = new Grid<P>(w, h, cell);
+      g.fill(items);
+      for (let k = 0; k < 200; k++) {
+        const x = k % 3 === 0 ? roll(dice) * 20 : k % 3 === 1 ? w - roll(dice) * 20 : roll(dice) * w;
+        const y = k % 2 ? roll(dice) * 20 : roll(dice) * h;
+        const radius = k % 5 === 0 ? w / 2 : 5 + roll(dice) * 150; // every fifth reaches half the world
+        const got: [P, number][] = [];
+        g.near(x, y, radius, (it, d) => got.push([it, d]));
+        const want = scan(items, w, h, cell, x, y, radius);
+        expect(got.length).toBe(want.length);
+        for (let i = 0; i < got.length; i++) {
+          expect(got[i]![0]).toBe(want[i]![0]);
+          expect(got[i]![1]).toBe(want[i]![1]);
+        }
+      }
     }
+  });
+
+  it("world.wrap: a grid told the drift finds what a plain scan of the filled cells finds after things walked; with no drift it loses some", () => {
+    const dice = makeDice(9);
+    type P = { x: number; y: number };
+    const w = 1600, h = 1000, drift = 30;
+    const items: P[] = Array.from({ length: 1500 }, () => ({ x: roll(dice) * w, y: roll(dice) * h }));
+    const safe = new Grid<P>(w, h, 64, drift), unsafe = new Grid<P>(w, h, 64);
+    safe.fill(items); unsafe.fill(items);
+    const home = items.map((it) => ({ x: it.x, y: it.y }));
+    for (const it of items) { // one tick of walking, up to `drift` each
+      const a = roll(dice) * Math.PI * 2, s = roll(dice) * drift;
+      it.x = wrap(it.x + Math.cos(a) * s, w); it.y = wrap(it.y + Math.sin(a) * s, h);
+    }
+    let lost = 0;
+    for (let k = 0; k < 3000; k++) {
+      const x = roll(dice) * w, y = roll(dice) * h, radius = 20 + roll(dice) * 50;
+      const want = scan(items, w, h, 64, x, y, radius, home).length;
+      let n = 0, m = 0;
+      safe.near(x, y, radius, () => n++);
+      unsafe.near(x, y, radius, () => m++);
+      expect(n).toBe(want);
+      if (m < want) lost++;
+    }
+    expect(lost).toBeGreaterThan(0); // the allowance is what keeps them
+  });
+
+  it("world.tick: a crowded, fast world matches the results of a plain scan of every look (values from the version without cell skipping)", () => {
+    const w = createWorld(4, {
+      start: { plants: 1200, herbivores: 1500, carnivores: 0 }, plants: { cap: 1200 },
+      herbivores: { genes: { speed: { min: 0.2, max: 5, start: [4, 5] }, sight: { min: 5, max: 250, start: [30, 60] } } },
+    } as never);
+    for (let t = 0; t < 400; t++) step(w);
+    let sx = 0, sy = 0;
+    for (const a of w.animals) if (!a.dead) { sx += a.x; sy += a.y; }
+    expect([w.living, w.plants.length, w.meat.length]).toEqual([2705, 1199, 1]);
+    expect(sx).toBeCloseTo(2142568.538649, 5);
+    expect(sy).toBeCloseTo(1374595.526587, 5);
   });
 
   it("world.wrap: the grid still finds things that moved after fill, within its drift", () => {

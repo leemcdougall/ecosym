@@ -36,23 +36,20 @@ function gap(lo: number, len: number, size: number, reach: number): number {
 }
 
 /**
- * Math.hypot(a, b) without the call overhead, giving the very same bits: the
- * scaled, compensated sum V8 uses. A test compares it with Math.hypot.
+ * Math.hypot(a, b) from basic maths and sqrt only, so it gives the same bits
+ * on every engine, and the very same bits as V8's Math.hypot (the scaled,
+ * compensated sum), so worlds made before this keep their seeds. Safari's
+ * Math.hypot differs. A test compares it with Math.hypot here.
  */
 export function hypot2(a: number, b: number): number {
   const x = a < 0 ? -a : a, y = b < 0 ? -b : b;
   const max = x > y ? x : y;
   if (max === 0) return 0;
   if (max !== max || max === Infinity) return Math.hypot(a, b);
-  const nx = x / max;
-  let sum = nx * nx;
-  let comp = 0;
-  const ny = y / max;
-  const summand = ny * ny - comp;
-  const prelim = sum + summand;
-  comp = (prelim - sum) - summand;
-  sum = prelim;
-  return Math.sqrt(sum) * max;
+  const nx = x / max, ny = y / max;
+  // V8 adds the two squares with a compensation term; with only two terms
+  // the first compensation is zero and the second is never used.
+  return Math.sqrt(nx * nx + ny * ny) * max;
 }
 
 export interface Placed { x: number; y: number }
@@ -79,7 +76,10 @@ export class Grid<T extends Placed> {
   add(it: T): void {
     this.cells[this.index(it.x, it.y)]!.push(it);
   }
-  /** Calls fn for every item within radius of (x, y), with its distance. */
+  /**
+   * Calls fn for every item within radius of (x, y), with its distance.
+   * (x, y) must be inside the world (wrapped): it picks the starting cell.
+   */
   near(x: number, y: number, radius: number, fn: (it: T, d: number) => void): void {
     const cw = this.w / this.cols, ch = this.h / this.rows;
     const rc = Math.min(Math.ceil(radius / cw), Math.floor(this.cols / 2));

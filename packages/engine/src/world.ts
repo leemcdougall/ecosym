@@ -246,6 +246,11 @@ function moveTo(w: World, a: Animal, x: number, y: number, gap: number, sprint: 
   go(w, a, Math.min(top, Math.max(0, gap)), canSprint);
 }
 
+/**
+ * Move along the heading. The animal grid's `drift` (see step) assumes nothing
+ * moves an animal further than genes.speed in a tick; if a new rule does,
+ * raise the allowance there.
+ */
 function go(w: World, a: Animal, speed: number, sprinting = false): void {
   a.x = wrap(a.x + Math.cos(a.heading) * speed, w.options.width);
   a.y = wrap(a.y + Math.sin(a.heading) * speed, w.options.height);
