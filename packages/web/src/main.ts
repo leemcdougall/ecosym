@@ -134,7 +134,7 @@ let frame = 0;
 let last = performance.now();
 let owed = 0;
 function loop(now: number): void {
-  const dt = Math.min(0.25, (now - last) / 1000);
+  const dt = Math.max(0, Math.min(0.25, (now - last) / 1000)); // a frame can be stamped before load
   last = now;
   if (!paused) {
     owed += dt * TICKS_PER_SECOND * speed;
