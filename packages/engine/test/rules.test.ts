@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { hypot2 } from "../src/space.js";
 import {
   ANIMAL_GENES, childGenes, createWorld, defaultOptions, delta, distance, Grid, makeDice,
-  maxEnergy, maxHealth, radius, roll, step, wrap, type Animal, type Plant, type World,
+  fullBody, maxEnergy, maxHealth, radius, roll, step, takesFight, winChance, wrap, type Animal, type Plant, type World,
 } from "../src/index.js";
 
 /** An empty world: no plants, no animals, no sprouts. */
@@ -12,16 +12,26 @@ function empty(over: Parameters<typeof createWorld>[1] = {}): World {
 
 /** Put one herbivore with start-average genes into the world. */
 function addHerbivore(w: World, x: number, y: number, genes: Partial<Animal["genes"]> = {}): Animal {
-  const r = w.options.herbivores.genes;
+  return addAnimal(w, "herbivore", x, y, genes);
+}
+
+/** Put one carnivore with start-average genes into the world. */
+function addCarnivore(w: World, x: number, y: number, genes: Partial<Animal["genes"]> = {}): Animal {
+  return addAnimal(w, "carnivore", x, y, genes);
+}
+
+function addAnimal(w: World, kind: Animal["kind"], x: number, y: number, genes: Partial<Animal["genes"]>): Animal {
+  const r = kind === "herbivore" ? w.options.herbivores.genes : w.options.carnivores.genes;
   const g = Object.fromEntries(ANIMAL_GENES.map((n) => [n, (r[n].start[0] + r[n].start[1]) / 2])) as Animal["genes"];
   const a: Animal = {
-    id: w.nextId++, kind: "herbivore", x, y, heading: 0, genes: { ...g, ...genes },
-    energy: 0, health: 0, age: 0, stamina: 0, cooldown: 0, fed: 0, generation: 0,
+    id: w.nextId++, kind, x, y, heading: 0, genes: { ...g, ...genes },
+    energy: 0, health: 0, age: 0, stamina: 0, cooldown: 0, fed: 0, body: 0, generation: 0,
     activity: "wander", moved: 0, sprinted: false, dead: false,
   };
   a.energy = maxEnergy(w, a) / 2;
   a.health = maxHealth(w, a);
   a.stamina = a.genes.stamina;
+  a.body = fullBody(w, a); // grown, like a starting animal
   w.animals.push(a);
   w.living++;
   return a;
@@ -281,6 +291,7 @@ describe("animals", () => {
   it("animals.starve: no energy means losing health, then death and meat", () => {
     const w = empty();
     const a = addHerbivore(w, 500, 500, { size: 1 });
+    a.age = a.genes.maturity; // grown, so it leaves full meat
     a.energy = 0;
     a.health = w.options.animals.starveDamage * 2.5;
     step(w);
@@ -291,7 +302,7 @@ describe("animals", () => {
     expect(a.cause).toBe("starved");
     expect(w.animals).toHaveLength(0);
     expect(w.meat).toHaveLength(1);
-    expect(w.meat[0]!.food).toBeCloseTo(w.options.animals.meatPerSize - w.options.meatRot);
+    expect(w.meat[0]!.food).toBeCloseTo(w.options.herbivores.meatPerSize - w.options.meatRot);
   });
 
   it("animals.death: an animal dies of old age", () => {
@@ -476,6 +487,7 @@ describe("breeding", () => {
     expect(b.cooldown).toBeGreaterThan(0);
     for (const baby of babies) {
       expect(baby.age).toBeLessThanOrEqual(1);
+      expect(baby.body).toBe(0); // animals.grow
       expect(baby.generation).toBe(1);
     }
     expect(w.totals.born.herbivore).toBe(2);
@@ -543,6 +555,302 @@ describe("breeding", () => {
     step(w);
     expect(w.animals).toHaveLength(2);
   });
+});
+
+describe("food chain", () => {
+  /** No healing, so health changes are only blows and thorns. */
+  const still = () => empty({ animals: { regen: 0 } });
+  /** A carnivore and a herbivore `gap` apart (edge to edge), the carnivore hungry. */
+  function chase(w: World, gap: number, herb: Partial<Animal["genes"]> = {}, carn: Partial<Animal["genes"]> = {}) {
+    const h = addHerbivore(w, 500, 500, { attack: 0, ...herb });
+    h.energy = maxEnergy(w, h); // full, so it isn't busy looking for food
+    const c = addCarnivore(w, 0, 500, { boldness: 0.5, ...carn });
+    c.x = 500 - radius(w, h) - radius(w, c) - gap;
+    c.energy = maxEnergy(w, c) * 0.3;
+    return { h, c };
+  }
+
+  it("hunt.sizeup: my chance is their ticks to win over both sides' ticks", () => {
+    const w = still();
+    const a = addCarnivore(w, 100, 100, { attack: 5, defence: 0 });
+    const b = addHerbivore(w, 300, 300, { attack: 2, defence: 1 });
+    a.health = 60; b.health = 40;
+    // I need 40 / (5 − 1) = 10 ticks, they need 60 / 2 = 30: 30 / 40
+    expect(winChance(w, a, b)).toBeCloseTo(0.75);
+    b.genes.attack = 0;
+    expect(winChance(w, a, b)).toBe(1);
+    a.genes.attack = 0;
+    expect(winChance(w, a, b)).toBe(0);
+  });
+
+  it("hunt.sizeup: boldness lowers the bar, and so does hunger", () => {
+    const w = still();
+    const a = addCarnivore(w, 100, 100, { attack: 5, defence: 0, boldness: 0.4 });
+    const b = addHerbivore(w, 300, 300, { attack: 2, defence: 1 });
+    a.health = 60; b.health = 40; // a wins with chance 0.75
+    a.energy = maxEnergy(w, a);
+    a.genes.boldness = 0.2; // bar 0.8
+    expect(takesFight(w, a, b)).toBe(false);
+    a.genes.boldness = 0.4; // bar 0.6
+    expect(takesFight(w, a, b)).toBe(true);
+    a.genes.boldness = 0.2;
+    a.energy = 0; // bar 0.8 × (1 − hungerBoldness)
+    expect(takesFight(w, a, b)).toBe(true);
+  });
+
+  it("hunt.chase: a hungry carnivore sprints at a herbivore in sight and makes it its target", () => {
+    const w = still();
+    const { h, c } = chase(w, 40);
+    step(w);
+    expect(c.activity).toBe("hunt");
+    expect(c.target).toBe(h.id);
+    expect(c.moved).toBeCloseTo(c.genes.speed);
+  });
+
+  it("hunt.chase: a carnivore that isn't hungry leaves herbivores alone", () => {
+    const w = still();
+    const { c } = chase(w, 40);
+    c.energy = maxEnergy(w, c);
+    step(w);
+    expect(c.activity).toBe("wander");
+    expect(c.target).toBeUndefined();
+  });
+
+  it("hunt.chase: it won't chase a herbivore whose size-up it wouldn't take", () => {
+    const w = still();
+    const { c } = chase(w, 40, { attack: 15, defence: 15 }, { boldness: 0 });
+    step(w);
+    expect(c.activity).not.toBe("hunt");
+  });
+
+  it("meat.eat: meat in sight comes before hunting, and a bite is bitePerSize × size", () => {
+    const w = still();
+    const { c } = chase(w, 40);
+    w.meat.push({ id: w.nextId++, x: c.x, y: c.y, food: 50 });
+    const before = c.energy;
+    step(w);
+    expect(c.activity).toBe("food");
+    expect(w.meat[0]!.food).toBeCloseTo(50 - w.options.animals.bitePerSize * c.genes.size - w.options.meatRot);
+    expect(c.energy).toBeGreaterThan(before);
+  });
+
+  it("hunt.cannibal: a very hungry carnivore with no herbivore or meat in sight hunts a carnivore", () => {
+    const w = still();
+    const a = addCarnivore(w, 500, 500, { boldness: 0.5 });
+    const b = addCarnivore(w, 540, 500, { attack: 0 });
+    b.energy = maxEnergy(w, b); // not ready to breed: still cooling down
+    b.cooldown = a.cooldown = 1000;
+    a.energy = maxEnergy(w, a) * (w.options.fight.cannibalHungry - 0.1);
+    step(w);
+    expect(a.target).toBe(b.id);
+  });
+
+  it("hunt.cannibal: not above cannibalHungry, nor with a herbivore in sight", () => {
+    const w = still();
+    const a = addCarnivore(w, 500, 500, { boldness: 0.5 });
+    const b = addCarnivore(w, 540, 500, { attack: 0 });
+    b.cooldown = a.cooldown = 1000;
+    a.energy = maxEnergy(w, a) * (w.options.fight.cannibalHungry + 0.1);
+    step(w);
+    expect(a.target).toBeUndefined();
+    // a herbivore it won't fight still stops it turning on its own kind
+    a.energy = maxEnergy(w, a) * 0.1;
+    a.activity = "wander";
+    addHerbivore(w, a.x, 540, { attack: 15, defence: 15 });
+    a.genes.boldness = 0;
+    step(w);
+    expect(a.target).toBeUndefined();
+  });
+
+  it("fight.damage: touching, each side loses the other's attack minus its defence", () => {
+    const w = still();
+    const { h, c } = chase(w, 0, { attack: 1, defence: 1 }, { attack: 4, defence: 0.5 });
+    const hh = h.health, ch = c.health;
+    step(w);
+    expect(hh - h.health).toBeCloseTo(4 - 1);
+    expect(ch - c.health).toBeCloseTo(1 - 0.5);
+  });
+
+  it("fight.damage: a blow is at least minDamage × attack, and no attack does no harm", () => {
+    const w = still();
+    const { h, c } = chase(w, 0, { attack: 0, defence: 10 }, { attack: 4, defence: 0 });
+    const hh = h.health, ch = c.health;
+    step(w);
+    expect(hh - h.health).toBeCloseTo(w.options.fight.minDamage * 4);
+    expect(c.health).toBe(ch);
+  });
+
+  it("fight.damage: reaching the prey during the move is enough to strike", () => {
+    const w = still();
+    const { h, c } = chase(w, 0.5);
+    const hh = h.health;
+    h.genes.speed = 0.01;
+    step(w);
+    expect(h.health).toBeLessThan(hh);
+  });
+
+  it("fight.damage: health at zero is killed at once, leaving meat", () => {
+    const w = still();
+    const { h, c } = chase(w, 0, {}, { attack: 10 });
+    h.health = 1;
+    h.age = h.genes.maturity;
+    step(w);
+    expect(h.dead).toBe(true);
+    expect(h.cause).toBe("killed");
+    expect(w.meat).toHaveLength(1);
+    expect(w.meat[0]!.food).toBeCloseTo(w.options.herbivores.meatPerSize * h.genes.size - w.options.meatRot);
+    expect(c.dead).toBe(false);
+  });
+
+  it("fight.flee: a hunted animal that wouldn't take the fight sprints straight away", () => {
+    const w = still();
+    const { h, c } = chase(w, 20);
+    step(w); // the carnivore picks its target; the herbivore acted first and didn't know yet
+    const x = h.x;
+    step(w);
+    expect(h.activity).toBe("flee");
+    expect(h.x - x).toBeCloseTo(h.genes.speed); // away from the carnivore on its left
+    expect(c.target).toBe(h.id);
+  });
+
+  it("fight.flee: a hunted animal that would take the fight carries on", () => {
+    const w = still();
+    const { h, c } = chase(w, 20, { attack: 3, defence: 3, boldness: 1 });
+    h.energy = maxEnergy(w, h) / 2;
+    addPlant(w, 500, 500 + radius(w, h) + 2, 50);
+    step(w);
+    step(w);
+    expect(c.target).toBe(h.id);
+    expect(h.activity).toBe("food");
+  });
+
+  it("meat.eat: picks the most food for the distance, and ignores scraps below minMeatFood", () => {
+    const w = empty({ animals: { regen: 0, minMeatFood: 20, meatDistanceWeight: 10 } });
+    const c = addCarnivore(w, 500, 500);
+    c.energy = maxEnergy(w, c) * 0.3;
+    const scrap = { id: w.nextId++, x: 500, y: 500, food: 15 }; // 15 / 10: best, if it counted
+    w.meat.push(scrap);
+    w.meat.push({ id: w.nextId++, x: 500, y: 520, food: 40 }); // 40 / 30: best that counts
+    w.meat.push({ id: w.nextId++, x: 450, y: 500, food: 60 }); // 60 / 60: biggest
+    step(w);
+    expect(c.activity).toBe("food");
+    expect(scrap.food).toBeCloseTo(15 - w.options.meatRot); // not eaten
+    expect(c.y).toBeGreaterThan(500); // heading for the 40, not the 60
+    expect(c.x).toBeCloseTo(500);
+  });
+
+  it("hunt.sizeup: the bar is (1 − boldness) × (1 − hungerBoldness × (1 − energy share))", () => {
+    const w = still();
+    const a = addCarnivore(w, 100, 100, { attack: 5, defence: 0, boldness: 0.2 });
+    const b = addHerbivore(w, 300, 300, { attack: 2, defence: 1 });
+    a.health = 60; b.health = 40; // chance 0.75
+    // bar = 0.8 × (1 − hb × (1 − share)) = 0.75 when share = 1 − (1 − 0.75 / 0.8) / hb
+    const share = 1 - (1 - 0.75 / 0.8) / w.options.fight.hungerBoldness;
+    a.energy = maxEnergy(w, a) * (share + 0.01);
+    expect(takesFight(w, a, b)).toBe(false);
+    a.energy = maxEnergy(w, a) * (share - 0.01);
+    expect(takesFight(w, a, b)).toBe(true);
+  });
+
+  it("fight.damage: a hunter killed by the blow back dies at once and pays no upkeep", () => {
+    const w = still();
+    const { h, c } = chase(w, 0, { attack: 10 }, { attack: 5, boldness: 1 });
+    c.health = 0.5;
+    c.age = c.genes.maturity;
+    const e = c.energy;
+    step(w);
+    expect(c.dead).toBe(true);
+    expect(c.cause).toBe("killed");
+    expect(c.energy).toBe(e);
+    expect(h.dead).toBe(false);
+  });
+
+  it("fight.flee: a fleeing animal does nothing else, not even eat the plant it touches", () => {
+    const w = still();
+    const { h } = chase(w, 20);
+    h.energy = maxEnergy(w, h) / 2;
+    const p = addPlant(w, 500, 500, 50);
+    step(w);
+    const food = p.food;
+    step(w);
+    expect(h.activity).toBe("flee");
+    expect(p.food).toBe(food);
+  });
+
+  it("plants.thorns: thorns can kill", () => {
+    const w = still();
+    const a = addHerbivore(w, 500, 500, { defence: 0 });
+    addPlant(w, 500, 500, 50, { thorns: 10 });
+    a.health = 5;
+    step(w);
+    expect(a.dead).toBe(true);
+    expect(a.cause).toBe("killed");
+  });
+
+  it("plants.thorns: a bite hurts by thorns minus defence, nothing if defence is higher", () => {
+    const w = still();
+    const a = addHerbivore(w, 500, 500, { defence: 1 });
+    addPlant(w, 500, 500, 50, { thorns: 4 });
+    const h0 = a.health;
+    step(w);
+    expect(h0 - a.health).toBeCloseTo(3);
+    a.genes.defence = 5;
+    const h1 = a.health;
+    step(w);
+    expect(a.health).toBe(h1);
+  });
+
+  it("animals.grow: a young carnivore grows grown body ÷ maturity a tick, paying growCost × that", () => {
+    const w = still();
+    const a = addCarnivore(w, 500, 500, { size: 1, maturity: 100 });
+    a.body = 0;
+    a.energy = 40;
+    const step1 = fullBody(w, a) / 100;
+    const e = a.energy;
+    step(w);
+    expect(a.body).toBeCloseTo(step1);
+    // grow is paid on top of upkeep (it wandered at cruising speed)
+    const g = a.genes, u = w.options.animals.upkeep;
+    const upkeep = u.base * g.size + u.speed * g.speed * g.size + u.move * g.size * a.moved * a.moved
+      + u.sight * g.sight + u.stamina * g.stamina + u.attack * g.attack + u.defence * g.defence;
+    expect(e - a.energy).toBeCloseTo(upkeep + step1 * w.options.carnivores.growCost);
+  });
+
+  it("animals.grow: no energy, no growing; grown animals stop growing", () => {
+    const w = still();
+    const a = addCarnivore(w, 500, 500);
+    a.body = 0;
+    a.energy = 0;
+    a.health = 100;
+    step(w);
+    expect(a.body).toBe(0);
+    const b = addCarnivore(w, 300, 300);
+    const e = b.body;
+    step(w);
+    expect(b.body).toBe(e);
+  });
+
+  it("animals.grow: the dead leave their body as meat", () => {
+    const w = still();
+    const a = addCarnivore(w, 500, 500);
+    a.body = 7;
+    a.energy = 0;
+    a.health = 0.01;
+    step(w);
+    expect(a.dead).toBe(true);
+    expect(w.meat[0]!.food).toBeCloseTo(7 - w.options.meatRot);
+  });
+  it("animals.grow: herbivores grow free by default", () => {
+    const w = still();
+    const a = addHerbivore(w, 500, 500, { maturity: 100 });
+    a.body = 0;
+    a.energy = 0;
+    a.health = 100;
+    step(w);
+    expect(a.body).toBeCloseTo(fullBody(w, a) / 100);
+  });
+
+
 });
 
 describe("meat", () => {

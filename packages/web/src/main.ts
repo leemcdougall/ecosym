@@ -20,6 +20,8 @@ const FRAME_BUDGET_MS = 12;
 const REACHED_SMOOTHING = 0.1;
 /** Display only: how big a piece of meat is drawn. */
 const MEAT_DOT = { base: 1.5, perFood: 1 / 40, most: 2 };
+/** Display only: an animal in a fight gets a ring for this many ticks, this far out. */
+const FIGHT_RING = { ticks: 12, gap: 1.5, colour: "#ffffff", width: 0.8 };
 
 /** ?seed=N replays a world. Seeds are whole numbers from 0 to 4294967295. */
 function readSeed(): number {
@@ -146,6 +148,19 @@ function draw(): void {
     ctx.fillStyle = shade(COLOURS[a.kind], a.genes.speed, r.start[0] * 0.5, r.start[1] * 1.5);
     dot(a.x, a.y, radius(world, a));
   }
+  // fight.damage: a ring round anything struck lately, fading
+  ctx.strokeStyle = FIGHT_RING.colour;
+  ctx.lineWidth = FIGHT_RING.width;
+  for (const a of world.animals) {
+    if (a.foughtAt === undefined) continue;
+    const age = world.tick - 1 - a.foughtAt;
+    if (age >= FIGHT_RING.ticks) continue;
+    ctx.globalAlpha = 1 - age / FIGHT_RING.ticks;
+    ctx.beginPath();
+    ctx.arc(a.x, a.y, Math.max(radius(world, a), minRadius) + FIGHT_RING.gap, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 
 function counts(): void {

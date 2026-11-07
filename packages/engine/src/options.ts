@@ -64,10 +64,11 @@ export interface WorldOptions {
     fedTicks: number;
     regenCost: number;
     starveDamage: number;
-    meatPerSize: number;
     hungry: number;
     minPlantFood: number;
     plantDistanceWeight: number;
+    minMeatFood: number;
+    meatDistanceWeight: number;
     bitePerSize: number;
     breedEnergy: number;
     breedCost: number;
@@ -75,8 +76,19 @@ export interface WorldOptions {
     turnJitter: number;
     birthSpread: number;
   };
-  herbivores: { genes: AnimalGeneRanges };
-  carnivores: { genes: AnimalGeneRanges };
+  /** hunt.* and fight.* */
+  fight: {
+    /** A blow is at least this share of the striker's attack. */
+    minDamage: number;
+    /** How far hunger lowers the size-up bar (0: not at all, 1: to nothing when empty). */
+    hungerBoldness: number;
+    /** hunt.cannibal: below this share of max energy, carnivores hunt carnivores. */
+    cannibalHungry: number;
+  };
+  /** growCost (animals.grow): share of the body's worth paid in energy to grow it. */
+  /** meatPerSize (animals.grow): what a grown body is worth, per size. */
+  herbivores: { genes: AnimalGeneRanges; growCost: number; meatPerSize: number };
+  carnivores: { genes: AnimalGeneRanges; growCost: number; meatPerSize: number };
 }
 
 const animalGenes = (o: Partial<Record<AnimalGene, [number, number]>>): AnimalGeneRanges => {
@@ -101,7 +113,7 @@ export function defaultOptions(): WorldOptions {
   return {
     width: 1600,
     height: 1000,
-    start: { plants: 500, herbivores: 120, carnivores: 0, plantFood: [0.5, 1], energy: [0.6, 0.9], ageFraction: 0.5 },
+    start: { plants: 500, herbivores: 250, carnivores: 40, plantFood: [0.5, 1], energy: [0.6, 0.9], ageFraction: 0.5 },
     touch: 1,
     mutation: { chance: 0.1, size: 0.05 },
     maxAnimals: 4000,
@@ -138,10 +150,11 @@ export function defaultOptions(): WorldOptions {
       fedTicks: 60,
       regenCost: 0.5,
       starveDamage: 0.2,
-      meatPerSize: 60,
       hungry: 0.8,
       minPlantFood: 5,
       plantDistanceWeight: 10,
+      minMeatFood: 2,
+      meatDistanceWeight: 10,
       bitePerSize: 3,
       breedEnergy: 0.6,
       breedCost: 0.25,
@@ -149,9 +162,19 @@ export function defaultOptions(): WorldOptions {
       turnJitter: 0.3,
       birthSpread: 6,
     },
-    herbivores: { genes: animalGenes({}) },
+    fight: { minDamage: 0.2, hungerBoldness: 0.7, cannibalHungry: 0.5 },
+    // A wide spread at the start: some herbivores begin fast, tough or bold.
+    herbivores: {
+      genes: animalGenes({ speed: [1.0, 2.0], stamina: [60, 160], attack: [0, 2], defence: [0.5, 2], boldness: [0.2, 0.7] }),
+      // Herbivores grow free: their food (plants) isn't eaten by anything that could loop it back.
+      growCost: 0,
+      meatPerSize: 140,
+    },
     carnivores: {
-      genes: animalGenes({ speed: [1.4, 2.0], attack: [2, 4], sight: [70, 110] }),
+      genes: animalGenes({ speed: [1.4, 2.0], attack: [2, 4], sight: [70, 110], size: [1.4, 1.8] }),
+      // Full price, so carnivores eating carnivores never makes food from nothing.
+      growCost: 1,
+      meatPerSize: 40,
     },
   };
 }
