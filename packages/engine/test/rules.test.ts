@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { hypot2 } from "../src/space.js";
 import {
   ANIMAL_GENES, childGenes, createWorld, defaultOptions, delta, distance, Grid, makeDice,
-  maxEnergy, maxHealth, radius, roll, step, takesFight, winChance, wrap, type Animal, type Plant, type World,
+  fullBody, maxEnergy, maxHealth, radius, roll, step, takesFight, winChance, wrap, type Animal, type Plant, type World,
 } from "../src/index.js";
 
 /** An empty world: no plants, no animals, no sprouts. */
@@ -25,12 +25,13 @@ function addAnimal(w: World, kind: Animal["kind"], x: number, y: number, genes: 
   const g = Object.fromEntries(ANIMAL_GENES.map((n) => [n, (r[n].start[0] + r[n].start[1]) / 2])) as Animal["genes"];
   const a: Animal = {
     id: w.nextId++, kind, x, y, heading: 0, genes: { ...g, ...genes },
-    energy: 0, health: 0, age: 0, stamina: 0, cooldown: 0, fed: 0, generation: 0,
+    energy: 0, health: 0, age: 0, stamina: 0, cooldown: 0, fed: 0, body: 0, generation: 0,
     activity: "wander", moved: 0, sprinted: false, dead: false,
   };
   a.energy = maxEnergy(w, a) / 2;
   a.health = maxHealth(w, a);
   a.stamina = a.genes.stamina;
+  a.body = fullBody(w, a); // grown, like a starting animal
   w.animals.push(a);
   w.living++;
   return a;
@@ -301,7 +302,7 @@ describe("animals", () => {
     expect(a.cause).toBe("starved");
     expect(w.animals).toHaveLength(0);
     expect(w.meat).toHaveLength(1);
-    expect(w.meat[0]!.food).toBeCloseTo(w.options.animals.meatPerSize - w.options.meatRot);
+    expect(w.meat[0]!.food).toBeCloseTo(w.options.herbivores.meatPerSize - w.options.meatRot);
   });
 
   it("animals.death: an animal dies of old age", () => {
@@ -486,6 +487,7 @@ describe("breeding", () => {
     expect(b.cooldown).toBeGreaterThan(0);
     for (const baby of babies) {
       expect(baby.age).toBeLessThanOrEqual(1);
+      expect(baby.body).toBe(0); // animals.grow
       expect(baby.generation).toBe(1);
     }
     expect(w.totals.born.herbivore).toBe(2);
@@ -696,7 +698,7 @@ describe("food chain", () => {
     expect(h.dead).toBe(true);
     expect(h.cause).toBe("killed");
     expect(w.meat).toHaveLength(1);
-    expect(w.meat[0]!.food).toBeCloseTo(w.options.animals.meatPerSize * h.genes.size - w.options.meatRot);
+    expect(w.meat[0]!.food).toBeCloseTo(w.options.herbivores.meatPerSize * h.genes.size - w.options.meatRot);
     expect(c.dead).toBe(false);
   });
 
@@ -798,16 +800,57 @@ describe("food chain", () => {
     expect(a.health).toBe(h1);
   });
 
-  it("animals.death: the young leave meat in proportion to age over maturity", () => {
+  it("animals.grow: a young carnivore grows grown body ÷ maturity a tick, paying growCost × that", () => {
     const w = still();
-    const a = addHerbivore(w, 500, 500, { size: 1, maturity: 1000 });
-    a.age = 250;
-    a.health = 0.01;
+    const a = addCarnivore(w, 500, 500, { size: 1, maturity: 100 });
+    a.body = 0;
+    a.energy = 40;
+    const step1 = fullBody(w, a) / 100;
+    const e = a.energy;
+    step(w);
+    expect(a.body).toBeCloseTo(step1);
+    // grow is paid on top of upkeep (it wandered at cruising speed)
+    const g = a.genes, u = w.options.animals.upkeep;
+    const upkeep = u.base * g.size + u.speed * g.speed * g.size + u.move * g.size * a.moved * a.moved
+      + u.sight * g.sight + u.stamina * g.stamina + u.attack * g.attack + u.defence * g.defence;
+    expect(e - a.energy).toBeCloseTo(upkeep + step1 * w.options.carnivores.growCost);
+  });
+
+  it("animals.grow: no energy, no growing; grown animals stop growing", () => {
+    const w = still();
+    const a = addCarnivore(w, 500, 500);
+    a.body = 0;
     a.energy = 0;
+    a.health = 100;
+    step(w);
+    expect(a.body).toBe(0);
+    const b = addCarnivore(w, 300, 300);
+    const e = b.body;
+    step(w);
+    expect(b.body).toBe(e);
+  });
+
+  it("animals.grow: babies are born with no body, and the dead leave their body as meat", () => {
+    const w = still();
+    const a = addCarnivore(w, 500, 500);
+    a.body = 7;
+    a.energy = 0;
+    a.health = 0.01;
     step(w);
     expect(a.dead).toBe(true);
-    expect(w.meat[0]!.food).toBeCloseTo(w.options.animals.meatPerSize * 0.251 - w.options.meatRot);
+    expect(w.meat[0]!.food).toBeCloseTo(7 - w.options.meatRot);
   });
+  it("animals.grow: herbivores grow free by default", () => {
+    const w = still();
+    const a = addHerbivore(w, 500, 500, { maturity: 100 });
+    a.body = 0;
+    a.energy = 0;
+    a.health = 100;
+    step(w);
+    expect(a.body).toBeCloseTo(fullBody(w, a) / 100);
+  });
+
+
 });
 
 describe("meat", () => {

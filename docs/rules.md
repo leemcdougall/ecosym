@@ -102,6 +102,14 @@ Plant genes:
   + `upkeep.move` × size × (speed it moved this tick)²
   + `upkeep.sight` × sight + `upkeep.stamina` × stamina
   + `upkeep.attack` × attack + `upkeep.defence` × defence.
+- **animals.grow** A grown body is worth its kind's `meatPerSize` × size. Babies are
+  born with no body and build it: each tick, after upkeep, a young animal
+  grows up to (grown body ÷ maturity), paying its kind's `growCost` × that
+  in energy, until grown. With no energy to pay it doesn't grow. Starting
+  animals are grown. Carnivores pay full price (`growCost` 1), so their
+  meat is food that really went into them and carnivores eating carnivores
+  never makes food from nothing. Herbivores grow free (`growCost` 0): their
+  food is plants, which nothing feeds back to them.
 - **animals.stamina** Sprinting uses one stamina a tick. With no stamina left
   it can only cruise. Not sprinting, it gets back `staminaRecovery` a tick,
   up to its stamina gene.
@@ -111,9 +119,8 @@ Plant genes:
 - **animals.starve** With no energy left, it loses `starveDamage` health a
   tick.
 - **animals.death** An animal dies when its health reaches zero or its age
-  passes its lifespan. Every dead animal leaves meat: `meatPerSize` × size,
-  times age ÷ maturity for the young (babies leave almost none, so eating
-  babies never makes more food than the babies cost).
+  passes its lifespan. Every dead animal leaves meat: its body
+  (`animals.grow`).
 - **animals.sense** An animal knows about everything within its sight
   (measured from centre to centre, across the wrapped edges).
 - **animals.wander** With nothing to do it cruises, turning a little at

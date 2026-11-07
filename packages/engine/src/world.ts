@@ -35,6 +35,8 @@ export interface Animal {
   cooldown: number;
   /** Ticks left of faster healing after eating (animals.health). */
   fed: number;
+  /** Body grown so far: the meat it leaves when it dies (animals.grow). */
+  body: number;
   generation: number;
   activity: Activity;
   /** Speed moved in the latest tick (for upkeep and the screen). */
@@ -89,6 +91,7 @@ export function createWorld(seed: number, over: DeepPartial<WorldOptions> = {}):
       a.energy = maxEnergy(w, a) * between(d, options.start.energy[0], options.start.energy[1]);
       a.age = Math.floor(between(d, genes.maturity, Math.max(genes.maturity, genes.lifespan * options.start.ageFraction)));
       a.cooldown = Math.floor(between(d, 0, genes.cooldown));
+      a.body = fullBody(w, a); // starting animals are grown
     }
   }
   return w;
@@ -99,6 +102,9 @@ export const geneRanges = (o: WorldOptions, kind: Kind) =>
 
 export const maxEnergy = (w: World, a: Animal) => w.options.animals.energyPerSize * a.genes.size;
 export const maxHealth = (w: World, a: Animal) => w.options.animals.healthPerSize * a.genes.size;
+/** animals.grow: the meat a grown body is worth. */
+export const fullBody = (w: World, a: Animal) =>
+  (a.kind === "herbivore" ? w.options.herbivores : w.options.carnivores).meatPerSize * a.genes.size;
 export const radius = (w: World, a: Animal) =>
   w.options.animals.radiusBase + w.options.animals.radiusPerSize * a.genes.size;
 
@@ -115,7 +121,7 @@ function newAnimal(w: World, kind: Kind, x: number, y: number, genes: Record<Ani
   const a: Animal = {
     id: w.nextId++, kind, x: wrap(x, w.options.width), y: wrap(y, w.options.height),
     heading: roll(w.dice) * Math.PI * 2, genes, energy: 0, health: 0, age: 0,
-    stamina: genes.stamina, cooldown: 0, fed: 0, generation, activity: "wander",
+    stamina: genes.stamina, cooldown: 0, fed: 0, body: 0, generation, activity: "wander",
     moved: 0, sprinted: false, dead: false,
   };
   a.health = maxHealth(w, a);
@@ -404,6 +410,14 @@ function live(w: World, a: Animal): void {
   // animals.upkeep
   a.energy -= u.base * g.size + u.speed * g.speed * g.size + u.move * g.size * a.moved * a.moved
     + u.sight * g.sight + u.stamina * g.stamina + u.attack * g.attack + u.defence * g.defence;
+  // animals.grow: building the body costs energy, a share each tick until grown
+  const full = fullBody(w, a);
+  const cost = (a.kind === "herbivore" ? w.options.herbivores : w.options.carnivores).growCost;
+  if (a.body < full && (a.energy > 0 || cost === 0)) {
+    const grow = Math.min(full - a.body, full / g.maturity, cost > 0 ? a.energy / cost : Infinity);
+    a.body += grow;
+    a.energy -= grow * cost;
+  }
   // animals.stamina: recovery when it didn't sprint this tick
   if (!a.sprinted) a.stamina = Math.min(g.stamina, a.stamina + ao.staminaRecovery);
   if (a.energy <= 0) {
@@ -431,9 +445,7 @@ function die(w: World, a: Animal, cause: NonNullable<Animal["cause"]>): void {
   a.cause = cause;
   w.living--;
   w.totals.died[a.kind]++;
-  // animals.death: the young leave less, growing to full at maturity.
-  const grown = Math.min(1, a.age / a.genes.maturity);
-  w.meat.push({ id: w.nextId++, x: a.x, y: a.y, food: w.options.animals.meatPerSize * a.genes.size * grown });
+  w.meat.push({ id: w.nextId++, x: a.x, y: a.y, food: a.body });
 }
 
 /** meat.rot */
