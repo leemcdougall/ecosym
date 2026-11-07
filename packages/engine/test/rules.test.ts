@@ -830,7 +830,7 @@ describe("food chain", () => {
     expect(b.body).toBe(e);
   });
 
-  it("animals.grow: babies are born with no body, and the dead leave their body as meat", () => {
+  it("animals.grow: the dead leave their body as meat", () => {
     const w = still();
     const a = addCarnivore(w, 500, 500);
     a.body = 7;

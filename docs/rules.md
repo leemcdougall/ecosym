@@ -103,8 +103,8 @@ Plant genes:
   + `upkeep.sight` × sight + `upkeep.stamina` × stamina
   + `upkeep.attack` × attack + `upkeep.defence` × defence.
 - **animals.grow** A grown body is worth its kind's `meatPerSize` × size. Babies are
-  born with no body and build it: each tick, after upkeep, a young animal
-  grows up to (grown body ÷ maturity), paying its kind's `growCost` × that
+  born with no body and build it: each tick, after upkeep, an animal not
+  yet grown grows up to (grown body ÷ maturity), paying its kind's `growCost` × that
   in energy, until grown. With no energy to pay it doesn't grow. Starting
   animals are grown. Carnivores pay full price (`growCost` 1), so their
   meat is food that really went into them and carnivores eating carnivores
