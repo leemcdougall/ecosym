@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { hypot2 } from "../src/space.js";
 import {
   ANIMAL_GENES, childGenes, createWorld, defaultOptions, delta, distance, Grid, makeDice,
@@ -643,17 +643,41 @@ describe("meat", () => {
     expect(lost).toBeGreaterThan(0); // the allowance is what keeps them
   });
 
-  it("world.tick: a crowded, fast world matches the results of a plain scan of every look (values from the version without cell skipping; seed 3 is one where a missing drift allowance shows)", () => {
-    const w = createWorld(3, {
-      start: { plants: 1200, herbivores: 1500, carnivores: 0 }, plants: { cap: 1200 },
-      herbivores: { genes: { speed: { min: 0.2, max: 5, start: [4, 5] }, sight: { min: 5, max: 250, start: [30, 60] } } },
-    } as never);
-    for (let t = 0; t < 400; t++) step(w);
-    let sx = 0, sy = 0;
-    for (const a of w.animals) if (!a.dead) { sx += a.x; sy += a.y; }
-    expect([w.living, w.plants.length, w.meat.length]).toEqual([2686, 1200, 0]);
-    expect(sx).toBe(2098821.187289715);
-    expect(sy).toBe(1349103.1503635237);
+  it("world.tick: a crowded, fast world comes out the same with the original look-around (every cell in the window, plain delta and Math.hypot)", () => {
+    const crowded = () => {
+      const w = createWorld(3, {
+        start: { plants: 1200, herbivores: 1500, carnivores: 0 }, plants: { cap: 1200 },
+        herbivores: { genes: { speed: { min: 0.2, max: 5, start: [4, 5] }, sight: { min: 5, max: 250, start: [30, 60] } } },
+      } as never);
+      for (let t = 0; t < 400; t++) step(w);
+      return JSON.stringify(w);
+    };
+    const fast = crowded();
+    // The reference: the first version of Grid.near, with no cell skipping.
+    const spy = vi.spyOn(Grid.prototype, "near").mockImplementation(function (
+      this: Grid<{ x: number; y: number }>, x: number, y: number, radius: number, fn: (it: { x: number; y: number }, d: number) => void,
+    ) {
+      const g = this as unknown as { w: number; h: number; cols: number; rows: number; cells: { x: number; y: number }[][] };
+      const cw = g.w / g.cols, ch = g.h / g.rows;
+      const rc = Math.min(Math.ceil(radius / cw), Math.floor(g.cols / 2));
+      const rr = Math.min(Math.ceil(radius / ch), Math.floor(g.rows / 2));
+      const c0 = Math.floor((x / g.w) * g.cols), r0 = Math.floor((y / g.h) * g.rows);
+      const lastDr = 2 * rr === g.rows ? rr - 1 : rr, lastDc = 2 * rc === g.cols ? rc - 1 : rc;
+      for (let dr = -rr; dr <= lastDr; dr++) {
+        const r = ((r0 + dr) % g.rows + g.rows) % g.rows;
+        for (let dc = -rc; dc <= lastDc; dc++) {
+          const c = ((c0 + dc) % g.cols + g.cols) % g.cols;
+          for (const it of g.cells[r * g.cols + c]!) {
+            const d = Math.hypot(delta(x, it.x, g.w), delta(y, it.y, g.h));
+            if (d <= radius) fn(it, d);
+          }
+        }
+      }
+    });
+    let slow: string, looks = 0;
+    try { slow = crowded(); looks = spy.mock.calls.length; } finally { spy.mockRestore(); }
+    expect(looks).toBeGreaterThan(1000); // the swapped look really ran
+    expect(slow).toBe(fast);
   });
 
   it("world.wrap: the grid still finds things that moved after fill, within its drift", () => {
