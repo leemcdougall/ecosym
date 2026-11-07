@@ -61,6 +61,39 @@ describe("world", () => {
     expect(found[0]).toBeCloseTo(8);
   });
 
+  it("world.wrap: the grid finds each thing once, in cell order, even when the search covers the whole world", () => {
+    const dice = makeDice(7);
+    type P = { x: number; y: number };
+    // 4 by 3 cells (odd rows) and 4 by 4 cells (even rows, so the row skip runs too)
+    for (const [w, h] of [[400, 300], [400, 400]] as const) {
+      const items: P[] = Array.from({ length: 200 }, () => ({ x: roll(dice) * w, y: roll(dice) * h }));
+      const g = new Grid<P>(w, h, 100);
+      g.fill(items);
+      for (const radius of [30, 150, 1000]) {
+        const got: P[] = [];
+        g.near(10, 10, radius, (it) => got.push(it));
+        const want = items.filter((it) => distance(10, 10, it.x, it.y, w, h) <= radius);
+        expect(new Set(got).size).toBe(got.length);
+        expect(got).toHaveLength(want.length);
+        // order: cell by cell, items in the order they were filled
+        const cell = (it: P) => Math.floor(it.y / 100) * 4 + Math.floor(it.x / 100);
+        const rank = (it: P) => items.indexOf(it);
+        const rr = Math.min(Math.ceil(radius / 100), Math.floor(h / 100 / 2));
+        const rc = Math.min(Math.ceil(radius / 100), 2);
+        const expected: P[] = [];
+        const seen = new Set<number>();
+        for (let dr = -rr; dr <= rr; dr++) for (let dc = -rc; dc <= rc; dc++) {
+          const rows = h / 100; // the search starts in row 0, column 0
+          const c = ((dr % rows) + rows) % rows * 4 + ((dc % 4) + 4) % 4;
+          if (seen.has(c)) continue;
+          seen.add(c);
+          expected.push(...items.filter((it) => cell(it) === c && want.includes(it)).sort((a, b) => rank(a) - rank(b)));
+        }
+        expect(got).toEqual(expected);
+      }
+    }
+  });
+
   it("world.wrap: a tiny negative wraps to 0, never to the width", () => {
     expect(wrap(-1e-14, 1600)).toBeLessThan(1600);
   });

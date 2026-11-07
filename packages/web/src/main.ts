@@ -11,8 +11,12 @@ const COLOURS = { plant: "#4caf50", herbivore: "#5fb4ff", carnivore: "#ff6b5f", 
 const SPEEDS = [1, 2, 4, 8, 16];
 /** Ticks a second at 1×, whatever the screen's refresh rate. */
 const TICKS_PER_SECOND = 60;
-/** Most ticks run in one frame, so a slow computer slows down instead of freezing. */
+/** Most ticks run in one frame, so a fast speed on a quick world stays bounded. */
 const MAX_TICKS_PER_FRAME = 64;
+/** Milliseconds of stepping allowed per frame; the rest is left for drawing and clicks. */
+const FRAME_BUDGET_MS = 12;
+/** How quickly the "running" speed shown follows the real one (0 to 1 per frame). */
+const REACHED_SMOOTHING = 0.1;
 /** Display only: how big a piece of meat is drawn. */
 const MEAT_DOT = { base: 1.5, perFood: 1 / 40, most: 2 };
 
@@ -26,6 +30,8 @@ const seed = readSeed();
 const world: World = createWorld(seed);
 let paused = false;
 let speed = 1; // 1× to 16×
+/** Speed actually reached lately, in × (smoothed), shown when it falls short. */
+let reached = 1;
 /** Smallest dot, in world points, so dots stay visible on small screens. */
 let minRadius = 1;
 
@@ -34,10 +40,16 @@ seedEl.textContent = `seed ${seed}`;
 for (const s of SPEEDS) {
   const b = document.createElement("button");
   b.textContent = `${s}×`;
+  b.setAttribute("data-speed", String(s));
   b.setAttribute("aria-pressed", String(s === speed));
   b.onclick = () => {
     speed = s;
-    for (const o of speedsEl.children) o.setAttribute("aria-pressed", String(o === b));
+    reached = Math.min(reached, s);
+    owed = 0;
+    for (const o of speedsEl.children) {
+      o.setAttribute("aria-pressed", String(o === b));
+      o.textContent = `${o.getAttribute("data-speed")}×`;
+    }
   };
   speedsEl.append(b);
 }
@@ -133,6 +145,14 @@ function counts(): void {
     .join("") + `<span style="--dot:transparent">tick ${world.tick}</span>`;
 }
 
+/** Label the buttons: the asked-for speed, and what the world is really running at. */
+function showReached(): void {
+  const short = !paused && reached < speed * 0.9;
+  const text = short ? `${speed}× (running ${reached < 1 ? reached.toFixed(1) : Math.round(reached)}×)` : `${speed}×`;
+  const b = [...speedsEl.children].find((o) => o.getAttribute("aria-pressed") === "true");
+  if (b && b.textContent !== text) b.textContent = text;
+}
+
 // Fixed time step: 1× is TICKS_PER_SECOND on any screen.
 let frame = 0;
 let last = performance.now();
@@ -142,10 +162,15 @@ function loop(now: number): void {
   last = now;
   if (!paused) {
     owed += dt * TICKS_PER_SECOND * speed;
-    const run = Math.min(Math.floor(owed), MAX_TICKS_PER_FRAME);
-    for (let i = 0; i < run; i++) step(world);
-    owed = Math.min(owed - run, MAX_TICKS_PER_FRAME);
+    const want = Math.min(Math.floor(owed), MAX_TICKS_PER_FRAME);
+    const started = performance.now();
+    let run = 0;
+    while (run < want && (run === 0 || performance.now() - started < FRAME_BUDGET_MS)) { step(world); run++; }
+    owed -= want; // ticks the budget cut off are dropped, not saved up
+    if (dt > 0) reached += (run / (dt * TICKS_PER_SECOND) - reached) * REACHED_SMOOTHING;
+    owed = Math.min(Math.max(0, owed), 1); // keep only the fraction of a tick
   }
+  showReached();
   draw();
   if (frame++ % 10 === 0) counts();
   requestAnimationFrame(loop);
