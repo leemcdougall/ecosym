@@ -6,6 +6,7 @@ const pauseBtn = document.querySelector<HTMLButtonElement>("#pause")!;
 const speedsEl = document.querySelector<HTMLSpanElement>("#speeds")!;
 const countsEl = document.querySelector<HTMLDivElement>("#counts")!;
 const seedEl = document.querySelector<HTMLSpanElement>("#seed")!;
+const newRunBtn = document.querySelector<HTMLButtonElement>("#new-run")!;
 
 const COLOURS = { plant: "#4caf50", herbivore: "#5fb4ff", carnivore: "#ff6b5f", meat: "#a0703c" };
 const SPEEDS = [1, 2, 4, 8, 16];
@@ -24,10 +25,13 @@ const MEAT_DOT = { base: 1.5, perFood: 1 / 40, most: 2 };
 function readSeed(): number {
   const raw = new URLSearchParams(location.search).get("seed");
   const n = raw === null || raw.trim() === "" ? NaN : Number(raw);
-  return Number.isInteger(n) && n >= 0 && n <= 0xffffffff ? n : Math.floor(Math.random() * 1e9);
+  return Number.isInteger(n) && n >= 0 && n <= 0xffffffff ? n : randomSeed();
 }
-const seed = readSeed();
-const world: World = createWorld(seed);
+function randomSeed(): number {
+  return Math.floor(Math.random() * 1e9);
+}
+let seed = readSeed();
+let world: World = createWorld(seed);
 let paused = false;
 let speed = 1; // 1× to 16×
 /** Speed actually reached lately, in × (smoothed), shown when it falls short. */
@@ -58,8 +62,25 @@ const togglePause = () => {
   pauseBtn.textContent = paused ? "Play" : "Pause";
 };
 pauseBtn.onclick = togglePause;
-// Space pauses, unless a button has focus: then Space presses that button.
-const spaceForPause = (e: KeyboardEvent) => e.code === "Space" && !(e.target instanceof HTMLButtonElement);
+
+/** Start a fresh world from a new seed, keeping speed and pause. The address follows, so the run can be shared. */
+function newRun(): void {
+  let next = randomSeed();
+  while (next === seed) next = randomSeed();
+  seed = next;
+  world = createWorld(seed);
+  seedEl.textContent = `seed ${seed}`;
+  history.replaceState(null, "", `?seed=${seed}`);
+  owed = 0;
+  reached = speed;
+  last = performance.now();
+  fit();
+  counts();
+  draw();
+}
+newRunBtn.onclick = () => { newRun(); newRunBtn.blur(); };
+// Space always pauses or resumes, whatever has focus (it never presses the focused button).
+const spaceForPause = (e: KeyboardEvent) => e.code === "Space";
 addEventListener("keydown", (e) => {
   if (!spaceForPause(e)) return;
   e.preventDefault();
