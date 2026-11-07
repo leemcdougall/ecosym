@@ -34,9 +34,13 @@ button {
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 4px 10px;
+  padding: 4px 12px;
+  min-height: 44px;
+  min-width: 44px;
   font: inherit;
   cursor: pointer;
+  touch-action: manipulation; /* no double-tap zoom */
+  -webkit-tap-highlight-color: transparent;
 }
 button:hover { border-color: var(--muted); }
 button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
@@ -55,3 +59,17 @@ button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent);
 main { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
 canvas { display: block; max-width: 100%; max-height: 100%; background: #070a09; border-radius: 4px; }
 .speeds { display: contents; }
+
+@media (max-width: 600px) {
+  header { gap: 6px 12px; padding: 8px 12px; }
+  .counts { gap: 2px 12px; font-size: 15px; }
+  main { padding: 4px; }
+}
+/* Landscape phones: little height, so keep the header to as few rows as possible. */
+@media (max-height: 500px) {
+  header { padding: 4px 12px; gap: 2px 12px; }
+  h1 { display: none; }
+  .counts { flex-basis: 100%; gap: 0 12px; font-size: 13px; }
+  .seed { margin-left: 0; }
+  button { min-height: 44px; padding: 2px 10px; }
+}
